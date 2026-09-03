@@ -50,3 +50,34 @@ ChargingPilePlatform/
 ## 组员与分工
 
 见 [分工与进度记录.md](分工与进度记录.md)：张芮萌（组长）、葛伊诺、毛悦琮、陈庚泉、吴羽桐，每人一个 `feat/` 分支。
+
+## 每位成员的下一步
+
+1. **首次克隆并切到自己的分支**（在自己电脑终端执行）：
+
+   ```bash
+   git clone git@github.com:littleZ05/ChargingPilePlatform.git
+   cd ChargingPilePlatform
+   git checkout -b feat/你的GitHub账号 origin/feat/你的GitHub账号
+   ```
+
+   分支对应关系见“分工与进度记录.md”：张芮萌 → `feat/littlez05`，葛伊诺 → `feat/geyinuo`，
+   毛悦琮 → `feat/maoyuecong682`，陈庚泉 → `feat/flavourcatie`，吴羽桐 → `feat/shimmer-ywt`。
+
+2. **开始开发**：在自己负责的模块目录里改代码（详见 [src/README.md](src/README.md)），完成后：
+
+   ```bash
+   git add -A
+   git commit -m "[模块名] 简述做了什么"
+   git push origin feat/你的GitHub账号
+   ```
+
+3. **合入 main**：开发完成并自测后，在 GitHub 上发起 Pull Request（feat/你的账号 → main），
+   由组长或你指定的同学 review 后合并；`main` 始终保持可编译可运行。
+
+4. **公共契约提醒**：
+   - `src/database/schema.sql`（陈庚泉维护）和 `src/common/common.h` 是全组公共约定，
+     需要改结构时先在群里说明，评审通过后再合入 main，禁止各改各的；
+   - 提交前确认 `.gitignore` 生效，不要把 Makefile、*.o、可执行文件等构建产物提交上去；
+   - 吴羽桐：Web 大屏需联网下载一次 `echarts.min.js` 放到 `src/webdashboard/vendor/`（见该目录 README 注释），
+     之后大屏离线也能运行。
