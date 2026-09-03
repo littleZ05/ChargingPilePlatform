@@ -21,6 +21,8 @@ build*/
 
 # ---- 可执行文件 ----
 FinancialCalculator
+UserClient
+PcServer
 *.exe
 
 # ---- 编辑器/系统临时 ----

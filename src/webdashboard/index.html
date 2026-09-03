@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>充电桩运营大数据大屏（骨架）</title>
+  <!--
+    ECharts 库：请把 echarts.min.js 放到本目录 vendor/ 下（下载一次即可，离线可用）。
+    下载地址（联网时）：https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js
+    负责人：吴羽桐（shimmer-ywt）
+  -->
+  <script src="vendor/echarts.min.js"></script>
+</head>
+<body>
+  <h1>充电桩运营业务健康度大屏</h1>
+  <div id="chart" style="width:100%;height:520px;">图表占位</div>
+  <script>
+    // 骨架：先画一个空折线图占位，后续替换为真实数据（订单/营收/电桩状态）
+    var chart = echarts.init(document.getElementById('chart'));
+    chart.setOption({
+      title: { text: '近7日营收（待接入）' },
+      xAxis: { type: 'category', data: ['D1','D2','D3','D4','D5','D6','D7'] },
+      yAxis: { type: 'value' },
+      series: [{ type: 'line', data: [0,0,0,0,0,0,0] }]
+    });
+  </script>
+</body>
+</html>

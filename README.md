@@ -45,7 +45,7 @@ ChargingPilePlatform/
 
 ## 待办
 
-- [ ] 初始化 src/ Qt 工程骨架
+- [x] 初始化 src/ Qt 工程骨架（用户端/服务器端可编译运行，见 src/README.md）
 
 ## 组员与分工
 
