@@ -23,6 +23,14 @@ constexpr int kStationColumnLat      = 4;
 constexpr int kStationColumnTotal    = 5;
 constexpr int kStationColumnRate     = 6;
 
+constexpr int kPileColumnId      = 0;
+constexpr int kPileColumnCode    = 1;
+constexpr int kPileColumnType    = 2;
+constexpr int kPileColumnPower   = 3;
+constexpr int kPileColumnState   = 4;
+constexpr int kPileColumnCount   = 5;
+constexpr int kPileColumnSeconds = 6;
+
 } // namespace
 
 MainWindow::MainWindow(pcserver::StationStore *store, QWidget *parent)
@@ -123,6 +131,9 @@ void MainWindow::setupStationPage()
 void MainWindow::connectSignals()
 {
     connect(m_refreshButton, &QPushButton::clicked, this, &MainWindow::refreshStations);
+    connect(m_stationTable, &QTableWidget::currentCellChanged, this, [this](int, int, int, int) {
+        refreshPileDetail();
+    });
     connect(m_addStationButton, &QPushButton::clicked, this, [this]() {
         // 新增电站对话框在“新增电站”原子功能中接入
         statusBar()->showMessage(QStringLiteral("新增电站功能开发中"), 3000);
@@ -133,7 +144,18 @@ void MainWindow::refreshStations()
 {
     if (!m_store || !m_store->isOpen())
         return;
+    const int keepSelectionId = selectedStationId();
     fillStationTable(m_store->listStations());
+    if (keepSelectionId > 0) {
+        for (int row = 0; row < m_stationTable->rowCount(); ++row) {
+            const QTableWidgetItem *idItem = m_stationTable->item(row, kStationColumnId);
+            if (idItem && idItem->text().toInt() == keepSelectionId) {
+                m_stationTable->selectRow(row);
+                break;
+            }
+        }
+    }
+    refreshPileDetail();
 }
 
 void MainWindow::fillStationTable(const QVector<pcserver::StationInfo> &stations)
@@ -165,6 +187,44 @@ void MainWindow::fillStationTable(const QVector<pcserver::StationInfo> &stations
     }
 
     statusBar()->showMessage(QStringLiteral("共 %1 座充电站").arg(stations.size()), 3000);
+}
+
+void MainWindow::refreshPileDetail()
+{
+    m_pileTable->setRowCount(0);
+    m_currentStationId = selectedStationId();
+
+    if (m_currentStationId <= 0 || !m_store || !m_store->isOpen()) {
+        m_pileHintLabel->setText(QStringLiteral("请在上方列表选择一座充电站查看站内电桩状态"));
+        return;
+    }
+
+    const QVector<pcserver::PileInfo> piles = m_store->listPiles(m_currentStationId);
+    m_pileTable->setRowCount(piles.size());
+    m_pileHintLabel->setText(QStringLiteral("电站 ID=%1，共 %2 根电桩")
+                                 .arg(m_currentStationId)
+                                 .arg(piles.size()));
+
+    for (int row = 0; row < piles.size(); ++row) {
+        const pcserver::PileInfo &p = piles.at(row);
+        m_pileTable->setItem(row, kPileColumnId,
+                             new QTableWidgetItem(QString::number(p.id)));
+        m_pileTable->setItem(row, kPileColumnCode,
+                             new QTableWidgetItem(p.code));
+        m_pileTable->setItem(row, kPileColumnType,
+                             new QTableWidgetItem(p.type));
+        m_pileTable->setItem(row, kPileColumnPower,
+                             new QTableWidgetItem(QString::number(p.powerKw, 'f', 1)));
+
+        auto *stateItem = new QTableWidgetItem(pcserver::StationStore::pileStateText(p.state));
+        stateItem->setTextAlignment(Qt::AlignCenter);
+        m_pileTable->setItem(row, kPileColumnState, stateItem);
+
+        m_pileTable->setItem(row, kPileColumnCount,
+                             new QTableWidgetItem(QString::number(p.chargeCount)));
+        m_pileTable->setItem(row, kPileColumnSeconds,
+                             new QTableWidgetItem(QString::number(p.chargeSeconds)));
+    }
 }
 
 int MainWindow::selectedStationId() const

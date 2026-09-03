@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include <QLabel>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -17,6 +18,8 @@ private slots:
     void stationListHeadersMatchRequirement();
     void stationListShowsSeededRows();
     void stationListRefreshesAfterStoreInsert();
+    void selectingStationRowShowsItsPiles();
+    void switchingStationRowSwitchesPileDetail();
 };
 
 void TstStationUi::stationListHeadersMatchRequirement()
@@ -94,6 +97,62 @@ void TstStationUi::stationListRefreshesAfterStoreInsert()
     QCOMPARE(table->rowCount(), 1);
     QCOMPARE(table->item(0, 0)->text(), QString::number(newId));
     QCOMPARE(table->item(0, 5)->text(), QStringLiteral("5"));
+}
+
+void TstStationUi::selectingStationRowShowsItsPiles()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui4.db")), &error), qPrintable(error));
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    MainWindow window(&store);
+    auto *stationTable = window.findChild<QTableWidget *>(QStringLiteral("stationTable"));
+    auto *pileTable = window.findChild<QTableWidget *>(QStringLiteral("pileTable"));
+    auto *hintLabel = window.findChild<QLabel *>(QStringLiteral("pileHintLabel"));
+    QVERIFY(stationTable && pileTable && hintLabel);
+
+    const auto stations = store.listStations();
+    QVERIFY(stations.size() >= 2);
+    const auto pilesOfFirst = store.listPiles(stations.at(0).id);
+    QVERIFY(pilesOfFirst.size() > 0);
+
+    stationTable->selectRow(0);
+    QCOMPARE(pileTable->rowCount(), pilesOfFirst.size());
+
+    // 抽查第一根桩的关键字段
+    QCOMPARE(pileTable->item(0, 1)->text(), pilesOfFirst.at(0).code);
+    QCOMPARE(pileTable->item(0, 2)->text(), pilesOfFirst.at(0).type);
+    QCOMPARE(pileTable->item(0, 4)->text(),
+             StationStore::pileStateText(pilesOfFirst.at(0).state));
+    QVERIFY(hintLabel->text().contains(QString::number(stations.at(0).id)));
+}
+
+void TstStationUi::switchingStationRowSwitchesPileDetail()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui5.db")), &error), qPrintable(error));
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    MainWindow window(&store);
+    auto *stationTable = window.findChild<QTableWidget *>(QStringLiteral("stationTable"));
+    auto *pileTable = window.findChild<QTableWidget *>(QStringLiteral("pileTable"));
+    QVERIFY(stationTable && pileTable);
+
+    const auto stations = store.listStations();
+    stationTable->selectRow(0);
+    QCOMPARE(pileTable->rowCount(), store.listPiles(stations.at(0).id).size());
+
+    stationTable->selectRow(1);
+    QCOMPARE(pileTable->rowCount(), store.listPiles(stations.at(1).id).size());
+    QCOMPARE(pileTable->item(0, 1)->text(), store.listPiles(stations.at(1).id).at(0).code);
 }
 
 QTEST_MAIN(TstStationUi)

@@ -25,6 +25,8 @@ public:
 
     /** 从数据库重新加载充电站列表（测试与按钮共用入口） */
     void refreshStations();
+    /** 重新加载当前选中电站的站内电桩实时状态明细 */
+    void refreshPileDetail();
 
 private:
     void setupStationPage();
