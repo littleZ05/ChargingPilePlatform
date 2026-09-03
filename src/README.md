@@ -30,7 +30,7 @@ cd src && qmake6 && make
 | 张芮萌 | 项目管理/测试；创新点（价格策略、自愈检查） |
 | 葛伊诺 | userclient/ |
 | 毛悦琮 | pcserver/（基础管理 + QChart） |
-| 陈庚泉 | pcserver/（业务管理）+ database/schema.sql |
+| 陈庚泉 | pcserver/（充电站/用户管理等，充电站管理基础版已完成，见 `pcserver/README.md`）+ database/schema.sql |
 | 吴羽桐 | webdashboard/ + common/（Socket 组件） |
 
 > 重要：数据库建表脚本由陈庚泉维护（database/schema.sql），其他人改表结构必须走评审后合入 main，
