@@ -1,0 +1,39 @@
+# ---- Qt / qmake 构建产物 ----
+Makefile
+Makefile.*
+*.o
+*.obj
+*.a
+*.so
+*.dll
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+qrc_*.h
+.qmake.stash
+*.pro.user
+*.pro.user.*
+*.user
+debug/
+release/
+build*/
+
+# ---- 可执行文件 ----
+FinancialCalculator
+*.exe
+
+# ---- 编辑器/系统临时 ----
+.~*
+*.swp
+*~
+Thumbs.db
+.DS_Store
+
+# ---- 压缩包/中间产物（不入库） ----
+*.zip
+*.tar.gz
+
+# ---- 数据库运行时文件 ----
+*.db
+*.sqlite
