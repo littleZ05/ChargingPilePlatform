@@ -10,13 +10,18 @@ INCLUDEPATH += $$PWD/../common
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    stationstore.cpp
 
 HEADERS += \
     mainwindow.h \
+    stationstore.h \
     ../common/common.h
 
 FORMS += \
     mainwindow.ui
+
+RESOURCES += \
+    pcserver.qrc
 
 QMAKE_CXXFLAGS += -Wall

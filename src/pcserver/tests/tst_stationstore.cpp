@@ -1,0 +1,255 @@
+#include <QtTest/QtTest>
+
+#include <QSet>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QTemporaryDir>
+#include <QVariant>
+
+#include "../stationstore.h"
+
+using namespace pcserver;
+
+namespace {
+
+StationInfo stationById(const QVector<StationInfo> &stations, int id)
+{
+    for (const StationInfo &s : stations) {
+        if (s.id == id)
+            return s;
+    }
+    return StationInfo();
+}
+
+PileInfo pileById(const QVector<PileInfo> &piles, int id)
+{
+    for (const PileInfo &p : piles) {
+        if (p.id == id)
+            return p;
+    }
+    return PileInfo();
+}
+
+} // namespace
+
+class TstStationStore : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void schemaCreatesContractTables();
+    void addStationCreatesStationAndSimulatedPiles();
+    void listStationsReportsOnlineRate();
+    void invalidInputIsRejected();
+    void setPileStateRefreshesOnlineRate();
+    void seedDemoIfEmpty_data();
+    void seedDemoIfEmpty();
+    void pileStateTextMapping();
+};
+
+void TstStationStore::schemaCreatesContractTables()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("contract.db")), &error),
+             qPrintable(error));
+
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    QVERIFY(db.isOpen());
+
+    QSqlQuery query(db);
+    QVERIFY(query.exec(QStringLiteral(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name IN ('stations', 'piles')")));
+
+    QSet<QString> tables;
+    while (query.next())
+        tables.insert(query.value(0).toString());
+    QVERIFY2(tables.contains(QStringLiteral("stations")), "缺少 stations 表");
+    QVERIFY2(tables.contains(QStringLiteral("piles")), "缺少 piles 表");
+
+    // 公共契约：stations.online_rate 与 piles.state 字段必须存在
+    QSqlQuery columnQuery(db);
+    QVERIFY(columnQuery.exec(QStringLiteral("PRAGMA table_info(stations)")));
+    QSet<QString> stationColumns;
+    while (columnQuery.next())
+        stationColumns.insert(columnQuery.value(1).toString());
+    QVERIFY2(stationColumns.contains(QStringLiteral("online_rate")), "stations 缺少 online_rate");
+}
+
+void TstStationStore::addStationCreatesStationAndSimulatedPiles()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("add.db")), &error), qPrintable(error));
+
+    const int stationId = store.addStation(
+        QStringLiteral(" 测试站 A "), QStringLiteral(" 沈阳市测试路 1 号 "),
+        123.456789, 41.123456, 4, &error);
+    QVERIFY2(stationId > 0, qPrintable(error));
+
+    const auto stations = store.listStations();
+    QCOMPARE(stations.size(), 1);
+    const StationInfo info = stationById(stations, stationId);
+    QCOMPARE(info.name, QStringLiteral("测试站 A"));      // 站名已去除首尾空格
+    QCOMPARE(info.address, QStringLiteral("沈阳市测试路 1 号"));
+    QCOMPARE(info.totalPiles, 4);
+    QCOMPARE(info.onlinePiles, 4);
+
+    const auto piles = store.listPiles(stationId);
+    QCOMPARE(piles.size(), 4);
+    for (int i = 0; i < piles.size(); ++i) {
+        QCOMPARE(piles.at(i).stationId, stationId);
+        const QString expectCode =
+            QStringLiteral("S%1-P%2")
+                .arg(stationId, 3, 10, QLatin1Char('0'))
+                .arg(i + 1, 2, 10, QLatin1Char('0'));
+        QCOMPARE(piles.at(i).code, expectCode);
+        QVERIFY(piles.at(i).type == QStringLiteral("快充")
+                || piles.at(i).type == QStringLiteral("慢充"));
+        QVERIFY(piles.at(i).powerKw > 0.0);
+    }
+
+}
+
+void TstStationStore::listStationsReportsOnlineRate()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("rate.db")), &error), qPrintable(error));
+
+    // 10 根桩的初始固定分布：1 根故障、3 根充电中、6 根闲置 => 在线率 90%
+    const int stationId = store.addStation(
+        QStringLiteral("在线率测试站"), QStringLiteral("沈阳市测试路 2 号"),
+        123.100000, 41.700000, 10, &error);
+    QVERIFY2(stationId > 0, qPrintable(error));
+
+    const StationInfo info = stationById(store.listStations(), stationId);
+    QCOMPARE(info.totalPiles, 10);
+    QCOMPARE(info.onlinePiles, 9);
+    QVERIFY2(qAbs(info.onlineRate - 90.0) < 1e-6, qPrintable(QString::number(info.onlineRate)));
+
+}
+
+void TstStationStore::invalidInputIsRejected()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("invalid.db")), &error), qPrintable(error));
+
+    QVERIFY(!store.validateInput(QString(), QStringLiteral("地址"), 0, 0, 5, &error));
+    QVERIFY(!store.validateInput(QStringLiteral("站名"), QString(), 0, 0, 5, &error));
+    QVERIFY(!store.validateInput(QStringLiteral("站名"), QStringLiteral("地址"), 181, 0, 5, &error));
+    QVERIFY(!store.validateInput(QStringLiteral("站名"), QStringLiteral("地址"), 0, -91, 5, &error));
+    QVERIFY(!store.validateInput(QStringLiteral("站名"), QStringLiteral("地址"), 0, 0, 0, &error));
+    QVERIFY(!store.validateInput(QStringLiteral("站名"), QStringLiteral("地址"), 0, 0, 101, &error));
+
+    const int badId = store.addStation(QString(), QStringLiteral("地址"), 0, 0, 5, &error);
+    QCOMPARE(badId, -1);
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(store.listStations().size(), 0);
+
+    // 边界值应被接受：经度 ±180、纬度 ±90、桩数 1/100
+    QVERIFY(store.validateInput(QStringLiteral("站名"), QStringLiteral("地址"),
+                                -180.0, -90.0, 1, &error));
+    QVERIFY(store.validateInput(QStringLiteral("站名"), QStringLiteral("地址"),
+                                180.0, 90.0, 100, &error));
+
+}
+
+void TstStationStore::setPileStateRefreshesOnlineRate()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("state.db")), &error), qPrintable(error));
+
+    const int stationId = store.addStation(
+        QStringLiteral("状态测试站"), QStringLiteral("沈阳市测试路 3 号"),
+        123.200000, 41.800000, 10, &error);
+    QVERIFY2(stationId > 0, qPrintable(error));
+
+    // 第 1 根桩（下标 0）初始为闲置；改为故障后在线率 90% -> 80%
+    const auto piles = store.listPiles(stationId);
+    const int firstPileId = piles.at(0).id;
+    QVERIFY2(store.setPileState(firstPileId, cp::PileState::Fault, &error),
+             qPrintable(error));
+
+    QCOMPARE(pileById(store.listPiles(stationId), firstPileId).state, cp::PileState::Fault);
+    const StationInfo after = stationById(store.listStations(), stationId);
+    QCOMPARE(after.onlinePiles, 8);
+    QVERIFY(qAbs(after.onlineRate - 80.0) < 1e-6);
+
+    // 恢复闲置后在线率回到 90%
+    QVERIFY2(store.setPileState(firstPileId, cp::PileState::Idle, &error),
+             qPrintable(error));
+    const StationInfo recovered = stationById(store.listStations(), stationId);
+    QVERIFY(qAbs(recovered.onlineRate - 90.0) < 1e-6);
+
+    // 数据库中 stations.online_rate 也应同步更新（字段一致性）
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    QSqlQuery check(db);
+    check.prepare(QStringLiteral("SELECT online_rate FROM stations WHERE id = ?"));
+    check.addBindValue(stationId);
+    QVERIFY(check.exec() && check.next());
+    QVERIFY(qAbs(check.value(0).toDouble() - 90.0) < 1e-6);
+}
+
+void TstStationStore::seedDemoIfEmpty_data()
+{
+    QTest::addColumn<bool>("secondCall");
+    QTest::newRow("调用一次") << false;
+    QTest::newRow("重复调用不应重复插入") << true;
+}
+
+void TstStationStore::seedDemoIfEmpty()
+{
+    QFETCH(bool, secondCall);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("seed.db")), &error), qPrintable(error));
+
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+    if (secondCall)
+        QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    const auto stations = store.listStations();
+    QCOMPARE(stations.size(), 3);
+    int totalPiles = 0;
+    for (const StationInfo &s : stations) {
+        QVERIFY(s.totalPiles > 0);
+        totalPiles += s.totalPiles;
+        QCOMPARE(store.listPiles(s.id).size(), s.totalPiles);
+        QVERIFY(s.onlinePiles >= 0 && s.onlinePiles <= s.totalPiles);
+    }
+    QCOMPARE(totalPiles, 28); // 10 + 12 + 6
+}
+
+void TstStationStore::pileStateTextMapping()
+{
+    QCOMPARE(StationStore::pileStateText(cp::PileState::Idle), QStringLiteral("闲置"));
+    QCOMPARE(StationStore::pileStateText(cp::PileState::Charging), QStringLiteral("充电中"));
+    QCOMPARE(StationStore::pileStateText(cp::PileState::Fault), QStringLiteral("故障"));
+}
+
+QTEST_MAIN(TstStationStore)
+
+#include "tst_stationstore.moc"
