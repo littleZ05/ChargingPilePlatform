@@ -6,12 +6,15 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLayout>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
 #include <QDebug>
+
+#include "addstationdialog.h"
 
 namespace {
 
@@ -134,10 +137,7 @@ void MainWindow::connectSignals()
     connect(m_stationTable, &QTableWidget::currentCellChanged, this, [this](int, int, int, int) {
         refreshPileDetail();
     });
-    connect(m_addStationButton, &QPushButton::clicked, this, [this]() {
-        // 新增电站对话框在“新增电站”原子功能中接入
-        statusBar()->showMessage(QStringLiteral("新增电站功能开发中"), 3000);
-    });
+    connect(m_addStationButton, &QPushButton::clicked, this, &MainWindow::onAddStationClicked);
 }
 
 void MainWindow::refreshStations()
@@ -224,6 +224,45 @@ void MainWindow::refreshPileDetail()
                              new QTableWidgetItem(QString::number(p.chargeCount)));
         m_pileTable->setItem(row, kPileColumnSeconds,
                              new QTableWidgetItem(QString::number(p.chargeSeconds)));
+    }
+}
+
+void MainWindow::onAddStationClicked()
+{
+    if (!m_store || !m_store->isOpen())
+        return;
+
+    AddStationDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    QString error;
+    const int newId = m_store->addStation(
+        dialog.stationName(), dialog.address(),
+        dialog.longitude(), dialog.latitude(), dialog.pileCount(), &error);
+    if (newId <= 0) {
+        QMessageBox::warning(this, QStringLiteral("新增电站失败"), error);
+        return;
+    }
+
+    refreshStations();
+    selectStationById(newId);
+    statusBar()->showMessage(
+        QStringLiteral("已模拟新增电站「%1」（ID=%2，%3 根电桩）")
+            .arg(dialog.stationName())
+            .arg(newId)
+            .arg(dialog.pileCount()),
+        5000);
+}
+
+void MainWindow::selectStationById(int stationId)
+{
+    for (int row = 0; row < m_stationTable->rowCount(); ++row) {
+        const QTableWidgetItem *idItem = m_stationTable->item(row, kStationColumnId);
+        if (idItem && idItem->text().toInt() == stationId) {
+            m_stationTable->selectRow(row);
+            return;
+        }
     }
 }
 

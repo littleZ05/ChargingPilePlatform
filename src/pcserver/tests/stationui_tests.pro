@@ -10,10 +10,12 @@ INCLUDEPATH += $$PWD/.. $$PWD/../../common
 
 SOURCES += \
     $$PWD/tst_stationui.cpp \
+    $$PWD/../addstationdialog.cpp \
     $$PWD/../mainwindow.cpp \
     $$PWD/../stationstore.cpp
 
 HEADERS += \
+    $$PWD/../addstationdialog.h \
     $$PWD/../mainwindow.h \
     $$PWD/../stationstore.h
 

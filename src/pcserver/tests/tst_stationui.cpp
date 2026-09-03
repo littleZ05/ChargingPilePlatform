@@ -1,10 +1,14 @@
 #include <QtTest/QtTest>
 
 #include <QLabel>
+#include <QLineEdit>
+#include <QDoubleSpinBox>
+#include <QSpinBox>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
+#include "../addstationdialog.h"
 #include "../mainwindow.h"
 #include "../stationstore.h"
 
@@ -20,6 +24,8 @@ private slots:
     void stationListRefreshesAfterStoreInsert();
     void selectingStationRowShowsItsPiles();
     void switchingStationRowSwitchesPileDetail();
+    void addStationDialogRejectsInvalidInput();
+    void addStationDialogAcceptsValidInput();
 };
 
 void TstStationUi::stationListHeadersMatchRequirement()
@@ -153,6 +159,50 @@ void TstStationUi::switchingStationRowSwitchesPileDetail()
     stationTable->selectRow(1);
     QCOMPARE(pileTable->rowCount(), store.listPiles(stations.at(1).id).size());
     QCOMPARE(pileTable->item(0, 1)->text(), store.listPiles(stations.at(1).id).at(0).code);
+}
+
+void TstStationUi::addStationDialogRejectsInvalidInput()
+{
+    AddStationDialog dialog;
+    auto *nameEdit = dialog.findChild<QLineEdit *>(QStringLiteral("stationNameEdit"));
+    auto *errorLabel = dialog.findChild<QLabel *>(QStringLiteral("addStationErrorLabel"));
+    QVERIFY(nameEdit && errorLabel);
+
+    nameEdit->clear();
+    QString error;
+    QVERIFY(!dialog.tryAccept(&error));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(!errorLabel->text().isEmpty());
+    QVERIFY(dialog.result() != QDialog::Accepted);
+}
+
+void TstStationUi::addStationDialogAcceptsValidInput()
+{
+    AddStationDialog dialog;
+    auto *nameEdit = dialog.findChild<QLineEdit *>(QStringLiteral("stationNameEdit"));
+    auto *addressEdit = dialog.findChild<QLineEdit *>(QStringLiteral("stationAddressEdit"));
+    auto *longitudeSpin =
+        dialog.findChild<QDoubleSpinBox *>(QStringLiteral("stationLongitudeSpin"));
+    auto *latitudeSpin =
+        dialog.findChild<QDoubleSpinBox *>(QStringLiteral("stationLatitudeSpin"));
+    auto *pileCountSpin =
+        dialog.findChild<QSpinBox *>(QStringLiteral("stationPileCountSpin"));
+    QVERIFY(nameEdit && addressEdit && longitudeSpin && latitudeSpin && pileCountSpin);
+
+    nameEdit->setText(QStringLiteral(" 新增对话框测试站 "));
+    addressEdit->setText(QStringLiteral(" 沈阳市测试路 99 号 "));
+    longitudeSpin->setValue(123.654321);
+    latitudeSpin->setValue(41.876543);
+    pileCountSpin->setValue(8);
+
+    QString error;
+    QVERIFY2(dialog.tryAccept(&error), qPrintable(error));
+    QCOMPARE(dialog.result(), QDialog::Accepted);
+    QCOMPARE(dialog.stationName(), QStringLiteral("新增对话框测试站"));
+    QCOMPARE(dialog.address(), QStringLiteral("沈阳市测试路 99 号"));
+    QCOMPARE(dialog.longitude(), 123.654321);
+    QCOMPARE(dialog.latitude(), 41.876543);
+    QCOMPARE(dialog.pileCount(), 8);
 }
 
 QTEST_MAIN(TstStationUi)

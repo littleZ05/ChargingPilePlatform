@@ -33,6 +33,8 @@ private:
     void connectSignals();
     void fillStationTable(const QVector<pcserver::StationInfo> &stations);
     int selectedStationId() const;
+    void selectStationById(int stationId);
+    void onAddStationClicked();
 
     Ui::MainWindow *ui;
     pcserver::StationStore *m_store = nullptr;

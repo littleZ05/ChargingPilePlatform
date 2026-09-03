@@ -9,11 +9,13 @@ TEMPLATE = app
 INCLUDEPATH += $$PWD/../common
 
 SOURCES += \
+    addstationdialog.cpp \
     main.cpp \
     mainwindow.cpp \
     stationstore.cpp
 
 HEADERS += \
+    addstationdialog.h \
     mainwindow.h \
     stationstore.h \
     ../common/common.h
