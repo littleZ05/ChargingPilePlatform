@@ -81,3 +81,5 @@ ChargingPilePlatform/
    - 提交前确认 `.gitignore` 生效，不要把 Makefile、*.o、可执行文件等构建产物提交上去；
    - 吴羽桐：Web 大屏需联网下载一次 `echarts.min.js` 放到 `src/webdashboard/vendor/`（见该目录 README 注释），
      之后大屏离线也能运行。
+
+完整开发流程（每日同步、提交规范、PR 合并、各成员细化步骤）见 [开发流程.md](开发流程.md)，请每位成员开工前通读一遍。
