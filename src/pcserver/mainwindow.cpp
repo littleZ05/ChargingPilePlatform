@@ -8,8 +8,10 @@
 #include <QLayout>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRandomGenerator>
 #include <QSplitter>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <QDebug>
@@ -48,7 +50,15 @@ MainWindow::MainWindow(pcserver::StationStore *store, QWidget *parent)
     setupStationPage();
     connectSignals();
     refreshStations();
-    statusBar()->showMessage(QStringLiteral("NO.12 充电站管理：演示数据为 SQLite 本地模拟"), 5000);
+
+    // 每 3 秒推进一次“实时”状态模拟：切换一根电桩状态并联动在线率/明细刷新
+    m_realtimeTimer = new QTimer(this);
+    m_realtimeTimer->setInterval(3000);
+    connect(m_realtimeTimer, &QTimer::timeout, this, &MainWindow::simulateRealtimeOnce);
+    m_realtimeTimer->start();
+
+    statusBar()->showMessage(
+        QStringLiteral("NO.12 充电站管理：SQLite 本地模拟，电桩状态每 3 秒实时刷新"), 5000);
 }
 
 MainWindow::~MainWindow()
@@ -138,6 +148,43 @@ void MainWindow::connectSignals()
         refreshPileDetail();
     });
     connect(m_addStationButton, &QPushButton::clicked, this, &MainWindow::onAddStationClicked);
+}
+
+void MainWindow::simulateRealtimeOnce()
+{
+    if (!m_store || !m_store->isOpen())
+        return;
+
+    const auto stations = m_store->listStations();
+    if (stations.isEmpty())
+        return;
+
+    // 优先模拟当前选中电站；未选中时以第一座电站演示
+    int stationId = m_currentStationId;
+    bool exists = false;
+    for (const pcserver::StationInfo &s : stations) {
+        if (s.id == stationId) {
+            exists = true;
+            break;
+        }
+    }
+    if (!exists)
+        stationId = stations.first().id;
+
+    const auto piles = m_store->listPiles(stationId);
+    if (piles.isEmpty())
+        return;
+
+    const pcserver::PileInfo &target =
+        piles.at(QRandomGenerator::global()->bounded(piles.size()));
+    const cp::PileState next = pcserver::StationStore::nextSimulatedState(target.state);
+
+    QString error;
+    if (!m_store->setPileState(target.id, next, &error)) {
+        statusBar()->showMessage(QStringLiteral("实时状态模拟失败：%1").arg(error), 5000);
+        return;
+    }
+    refreshStations(); // 保留选中行并刷新电站在线率与桩明细
 }
 
 void MainWindow::refreshStations()

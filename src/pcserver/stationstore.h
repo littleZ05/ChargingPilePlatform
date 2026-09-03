@@ -81,6 +81,8 @@ public:
                               QString *error = nullptr);
 
     static QString pileStateText(cp::PileState state);
+    /** 演示用状态迁移：闲置→充电中→闲置、故障→闲置（供“实时”模拟定时器使用） */
+    static cp::PileState nextSimulatedState(cp::PileState current);
 
 private:
     bool executeSchema(QString *error);

@@ -45,6 +45,7 @@ private slots:
     void seedDemoIfEmpty_data();
     void seedDemoIfEmpty();
     void pileStateTextMapping();
+    void nextSimulatedStateCyclesStates();
 };
 
 void TstStationStore::schemaCreatesContractTables()
@@ -248,6 +249,16 @@ void TstStationStore::pileStateTextMapping()
     QCOMPARE(StationStore::pileStateText(cp::PileState::Idle), QStringLiteral("闲置"));
     QCOMPARE(StationStore::pileStateText(cp::PileState::Charging), QStringLiteral("充电中"));
     QCOMPARE(StationStore::pileStateText(cp::PileState::Fault), QStringLiteral("故障"));
+}
+
+void TstStationStore::nextSimulatedStateCyclesStates()
+{
+    QCOMPARE(StationStore::nextSimulatedState(cp::PileState::Idle),
+             cp::PileState::Charging);
+    QCOMPARE(StationStore::nextSimulatedState(cp::PileState::Charging),
+             cp::PileState::Idle);
+    QCOMPARE(StationStore::nextSimulatedState(cp::PileState::Fault),
+             cp::PileState::Idle);
 }
 
 QTEST_MAIN(TstStationStore)

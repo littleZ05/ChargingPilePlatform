@@ -383,4 +383,17 @@ QString StationStore::pileStateText(cp::PileState state)
     return QStringLiteral("未知");
 }
 
+cp::PileState StationStore::nextSimulatedState(cp::PileState current)
+{
+    switch (current) {
+    case cp::PileState::Idle:
+        return cp::PileState::Charging;
+    case cp::PileState::Charging:
+        return cp::PileState::Idle;
+    case cp::PileState::Fault:
+        return cp::PileState::Idle;
+    }
+    return cp::PileState::Idle;
+}
+
 } // namespace pcserver

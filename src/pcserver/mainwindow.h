@@ -10,6 +10,7 @@ namespace Ui { class MainWindow; }
 class QLabel;
 class QPushButton;
 class QTableWidget;
+class QTimer;
 
 /**
  * PC 服务器端主窗口。
@@ -28,6 +29,9 @@ public:
     /** 重新加载当前选中电站的站内电桩实时状态明细 */
     void refreshPileDetail();
 
+private slots:
+    void simulateRealtimeOnce();
+
 private:
     void setupStationPage();
     void connectSignals();
@@ -43,6 +47,7 @@ private:
     QLabel       *m_pileHintLabel = nullptr;
     QPushButton  *m_refreshButton = nullptr;
     QPushButton  *m_addStationButton = nullptr;
+    QTimer       *m_realtimeTimer = nullptr;
     int           m_currentStationId = -1;
 };
 

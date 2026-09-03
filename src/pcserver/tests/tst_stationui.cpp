@@ -26,6 +26,7 @@ private slots:
     void switchingStationRowSwitchesPileDetail();
     void addStationDialogRejectsInvalidInput();
     void addStationDialogAcceptsValidInput();
+    void realtimeSimulationTickChangesPileState();
 };
 
 void TstStationUi::stationListHeadersMatchRequirement()
@@ -203,6 +204,41 @@ void TstStationUi::addStationDialogAcceptsValidInput()
     QCOMPARE(dialog.longitude(), 123.654321);
     QCOMPARE(dialog.latitude(), 41.876543);
     QCOMPARE(dialog.pileCount(), 8);
+}
+
+void TstStationUi::realtimeSimulationTickChangesPileState()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QString error;
+    StationStore store;
+    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui6.db")), &error), qPrintable(error));
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    MainWindow window(&store);
+    auto *stationTable = window.findChild<QTableWidget *>(QStringLiteral("stationTable"));
+    QVERIFY(stationTable);
+
+    const auto stations = store.listStations();
+    QVERIFY(!stations.isEmpty());
+    stationTable->selectRow(0);
+
+    const auto before = store.listPiles(stations.at(0).id);
+    QVERIFY(!before.isEmpty());
+
+    QVERIFY2(QMetaObject::invokeMethod(&window, "simulateRealtimeOnce"),
+             "无法调用 simulateRealtimeOnce");
+
+    const auto after = store.listPiles(stations.at(0).id);
+    bool changed = false;
+    for (int i = 0; i < after.size(); ++i) {
+        if (after.at(i).state != before.at(i).state) {
+            changed = true;
+            break;
+        }
+    }
+    QVERIFY2(changed, "实时模拟调用后应至少有一根电桩状态发生变化");
 }
 
 QTEST_MAIN(TstStationUi)
