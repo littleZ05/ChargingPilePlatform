@@ -20,13 +20,27 @@ QStringList splitSqlStatements(const QString &sql)
 {
     QStringList statements;
     QString current;
+    bool insideTriggerBody = false;
     const QStringList lines = sql.split(QLatin1Char('\n'));
     for (const QString &rawLine : lines) {
         const QString line = rawLine.trimmed();
         if (line.startsWith(QStringLiteral("--")))
             continue; // 注释行不参与执行
         current += rawLine + QLatin1Char('\n');
-        if (line.endsWith(QLatin1Char(';'))) {
+
+        if (insideTriggerBody) {
+            // BEGIN ... END 之间的分号属于触发器过程体，不能按普通语句切分
+            if (line.compare(QStringLiteral("END;"), Qt::CaseInsensitive) == 0) {
+                statements << current;
+                current.clear();
+                insideTriggerBody = false;
+            }
+            continue;
+        }
+
+        if (line.compare(QStringLiteral("BEGIN"), Qt::CaseInsensitive) == 0) {
+            insideTriggerBody = true;
+        } else if (line.endsWith(QLatin1Char(';'))) {
             statements << current;
             current.clear();
         }
