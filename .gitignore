@@ -15,6 +15,9 @@ qrc_*.h
 *.pro.user
 *.pro.user.*
 *.user
+target_wrapper.sh
+tst_*.moc
+error_utils_tests
 debug/
 release/
 build*/
