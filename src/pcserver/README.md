@@ -56,6 +56,10 @@ qmake6 <仓库>/src/pcserver/tests/stationstore_tests.pro && make && ./tst_stati
 # 界面测试（无需显示器）
 mkdir -p /tmp/station-ui-test && cd /tmp/station-ui-test
 qmake6 <仓库>/src/pcserver/tests/stationui_tests.pro && make && QT_QPA_PLATFORM=offscreen ./tst_stationui
+
+# 数据库核心表契约/一致性/索引测试（schema.sql v2）
+mkdir -p /tmp/schema-test && cd /tmp/schema-test
+qmake6 <仓库>/src/pcserver/tests/schema_tests.pro && make && ./tst_schema
 ```
 
 提交前请用 `git status` 确认 Makefile、`*.o`、`PcServer`、`*.db`、
