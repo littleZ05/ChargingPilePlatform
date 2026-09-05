@@ -6,6 +6,10 @@
 src/
 ├── ChargingPilePlatform.pro   # 总工程（subdirs，可一键构建两个子工程）
 ├── common/                    # 共享代码：常量、枚举、公共数据结构（两个端都引用）
+│   ├── common.h               # 端口/状态/创新点规则常量、状态文本
+│   ├── error_utils.h          # 错误码/文案/输入校验（NO.20，张芮萌）
+│   ├── ui/error_notify.h      # 统一弹窗/状态栏错误提示封装（NO.20，张芮萌）
+│   └── tests/                 # error_utils 单元测试（qmake + QtTest）
 ├── userclient/                # 充电用户端（Linux+Qt，负责人：葛伊诺 geyinuo）
 ├── pcserver/                  # PC 服务器端（Linux+Qt，负责人：毛悦琮、陈庚泉）
 ├── database/                  # 数据库：schema.sql 建表脚本（负责人：陈庚泉）
@@ -35,3 +39,10 @@ cd src && qmake6 && make
 
 > 重要：数据库建表脚本由陈庚泉维护（database/schema.sql），其他人改表结构必须走评审后合入 main，
 > 禁止各自私下改表。common/ 下的通信结构同理。
+
+## 公共组件（组长维护，任何人可用）
+
+- 错误处理：`error_utils.h`（错误码/中文文案/手机号、金额校验）+ `ui/error_notify.h`（统一弹窗/状态栏提示），
+  接入方式见 [docs/错误处理接入指南.md](../docs/错误处理接入指南.md)；
+- 规则常量：`common.h` 中 `cp::Pricing`（动态计费）与 `cp::SelfHeal`（自愈告警）参数集中可调；
+- 单元测试：`cd src/common/tests && qmake6 && make && ./error_utils_tests`。
