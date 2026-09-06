@@ -3,10 +3,10 @@
 #include <QSet>
 #include <QSqlDatabase>
 #include <QSqlQuery>
-#include <QTemporaryDir>
 #include <QVariant>
 
 #include "../stationstore.h"
+#include "test_dbpath.h"
 
 using namespace pcserver;
 
@@ -50,12 +50,11 @@ private slots:
 
 void TstStationStore::schemaCreatesContractTables()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("contract.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("contract.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
 
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
@@ -83,12 +82,11 @@ void TstStationStore::schemaCreatesContractTables()
 
 void TstStationStore::addStationCreatesStationAndSimulatedPiles()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("add.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("add.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
 
     const int stationId = store.addStation(
         QStringLiteral(" 测试站 A "), QStringLiteral(" 沈阳市测试路 1 号 "),
@@ -121,12 +119,11 @@ void TstStationStore::addStationCreatesStationAndSimulatedPiles()
 
 void TstStationStore::listStationsReportsOnlineRate()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("rate.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("rate.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
 
     // 10 根桩的初始固定分布：1 根故障、3 根充电中、6 根闲置 => 在线率 90%
     const int stationId = store.addStation(
@@ -143,12 +140,11 @@ void TstStationStore::listStationsReportsOnlineRate()
 
 void TstStationStore::invalidInputIsRejected()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("invalid.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("invalid.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
 
     QVERIFY(!store.validateInput(QString(), QStringLiteral("地址"), 0, 0, 5, &error));
     QVERIFY(!store.validateInput(QStringLiteral("站名"), QString(), 0, 0, 5, &error));
@@ -172,12 +168,11 @@ void TstStationStore::invalidInputIsRejected()
 
 void TstStationStore::setPileStateRefreshesOnlineRate()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("state.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("state.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
 
     const int stationId = store.addStation(
         QStringLiteral("状态测试站"), QStringLiteral("沈阳市测试路 3 号"),
@@ -221,12 +216,11 @@ void TstStationStore::seedDemoIfEmpty()
 {
     QFETCH(bool, secondCall);
 
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("seed.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("seed.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
 
     QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
     if (secondCall)

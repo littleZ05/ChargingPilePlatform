@@ -1,5 +1,5 @@
 # PC 服务器端 - 充电站管理界面测试（offscreen）
-QT       += core gui widgets sql testlib
+QT       += core gui widgets sql charts testlib
 CONFIG   += console c++17 testcase
 CONFIG   -= app_bundle
 
