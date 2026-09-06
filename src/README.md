@@ -12,7 +12,7 @@ src/
 │   └── tests/                 # error_utils 单元测试（qmake + QtTest）
 ├── userclient/                # 充电用户端（Linux+Qt，负责人：葛伊诺 geyinuo）
 ├── pcserver/                  # PC 服务器端（Linux+Qt，负责人：毛悦琮、陈庚泉）
-├── database/                  # 数据库：schema.sql 建表脚本（负责人：陈庚泉）
+├── database/                  # 数据库：schema.sql 建表脚本 + 设计说明（负责人：陈庚泉）
 └── webdashboard/              # 大数据可视化大屏（Web+ECharts，负责人：吴羽桐）
 ```
 
@@ -34,7 +34,7 @@ cd src && qmake6 && make
 | 张芮萌 | 项目管理/测试；创新点（价格策略、自愈检查） |
 | 葛伊诺 | userclient/ |
 | 毛悦琮 | pcserver/（基础管理 + QChart） |
-| 陈庚泉 | pcserver/（业务管理）+ database/schema.sql |
+| 陈庚泉 | pcserver/（充电站/用户管理等，充电站管理基础版已完成，见 `pcserver/README.md`）+ database/schema.sql（核心表设计，见 `database/README.md`） |
 | 吴羽桐 | webdashboard/ + common/（Socket 组件） |
 
 > 重要：数据库建表脚本由陈庚泉维护（database/schema.sql），其他人改表结构必须走评审后合入 main，
