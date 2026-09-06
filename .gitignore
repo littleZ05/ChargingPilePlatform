@@ -18,6 +18,9 @@ qrc_*.h
 target_wrapper.sh
 tst_*.moc
 error_utils_tests
+tst_schema
+tst_stationstore
+tst_stationui
 debug/
 release/
 build*/
