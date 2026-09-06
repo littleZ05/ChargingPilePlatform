@@ -46,6 +46,10 @@ qmake6 && make
 ./PcServer                # 无显示环境可加 QT_QPA_PLATFORM=offscreen
 ```
 
+> Qt Charts 依赖约定：本基础工程不引入 `charts` 模块；
+> NO.9 销售业绩（毛悦琮，`feat/maoyuecong682`）实现 QChart 时，
+> 在其分支 `pcserver.pro` 的 `QT +=` 中加回 `charts` 后随 PR 合入 main。
+
 ## 自动化测试
 
 ```bash

@@ -1,5 +1,7 @@
 # PC 服务器端（Linux + Qt）
-# 说明：当前源码未使用 Qt Charts；销售业绩模块实现时再按需增加 charts，避免无谓的编译依赖。
+# 说明：基础工程不强制依赖 Qt Charts（当前源码未使用，避免无 charts 开发包环境编译失败）。
+# 归属约定：NO.9 销售业绩（毛悦琮，feat/maoyuecong682）使用 QChart 时，
+# 应在其分支的 pcserver.pro 增加 “QT += charts”，再随 PR 合入 main。
 QT       += core gui widgets network sql
 CONFIG   += c++17
 
