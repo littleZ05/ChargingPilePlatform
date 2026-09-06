@@ -5,6 +5,8 @@
 #include <QVector>
 #include <cmath>
 
+#include "common.h"
+
 /** 充电桩信息（对应数据库 piles 表，供用户端展示） */
 struct Pile {
     QString code;      // 桩编号，如 "DS-01"
@@ -108,11 +110,9 @@ inline QVector<Order> mockOrders()
 }
 
 /**
- * 创新点1「闲时动态计费」的用户侧展示参数（与 common.h 的 cp::Pricing 对齐）。
- * 待组长把 common.h 的 Pricing 常量合入 main 后，可改用 cp::Pricing::kIdleRateThreshold / kDiscount。
+ * 创新点1「闲时动态计费」的用户侧展示逻辑。
+ * 阈值/折扣统一取 common.h 的 cp::Pricing（组长维护），不再本地重复定义。
  */
-inline constexpr double kSaleIdleRateThreshold = 0.60; // 空闲率 > 60% 触发打折
-inline constexpr double kSaleDiscount = 0.80;          // 8 折
 
 /** 空闲率 = 空闲桩 / 总桩数 */
 inline double idleRateOf(const Station &s)
@@ -123,13 +123,13 @@ inline double idleRateOf(const Station &s)
 /** 是否命中「闲时特惠」（空闲率超过阈值） */
 inline bool isOnSale(const Station &s)
 {
-    return idleRateOf(s) > kSaleIdleRateThreshold;
+    return idleRateOf(s) > cp::Pricing::kIdleRateThreshold;
 }
 
 /** 计费单价（命中闲时特惠则打折） */
 inline double effectivePrice(const Station &s)
 {
-    return isOnSale(s) ? s.price * kSaleDiscount : s.price;
+    return isOnSale(s) ? s.price * cp::Pricing::kDiscount : s.price;
 }
 
 /** 计算两经纬度间距离（km，Haversine 近似） */
