@@ -33,6 +33,55 @@ inline constexpr int kStationQuery = 1; // 附近电站查询
 inline constexpr int kOrderReport = 2;  // 充电订单上报
 }
 
+/**
+ * 创新点1：闲时“反向激励”动态计费规则参数（集中定义，便于运营调整）
+ * 维护人：张芮萌（feat/littlez05）
+ */
+namespace Pricing {
+inline constexpr double kIdleRateThreshold = 0.60;  // 预测空闲率 > 60% 触发打折
+inline constexpr double kDiscount = 0.80;            // 折扣率：8 折
+inline constexpr int    kPredictHours = 1;           // 预测未来 1 小时
+}
+
+/**
+ * 创新点2：异常检测“自愈”告警参数
+ * 维护人：张芮萌（feat/littlez05）
+ */
+namespace SelfHeal {
+inline constexpr double kLowPowerRatio = 0.20;   // 功率低于历史均值 20% 判为异常
+inline constexpr int    kConsecutiveCount = 3;   // 连续 3 次触发“需检查”
+inline constexpr int    kCheckIntervalSec = 60;  // 自愈检查定时器周期（秒，可调）
+}
+
+/** 自愈检查状态分级（与服务器端定时任务返回值对应） */
+enum class HealLevel {
+    Normal = 0,   // 正常
+    Warning = 1,  // 预警（需检查）
+    Fault = 2     // 故障（自动重启失败后置为故障）
+};
+
+/** 电桩状态 -> 中文显示（界面/日志通用） */
+inline QString pileStateText(PileState s)
+{
+    switch (s) {
+    case PileState::Idle:     return QStringLiteral("闲置");
+    case PileState::Charging: return QStringLiteral("充电中");
+    case PileState::Fault:    return QStringLiteral("故障");
+    }
+    return QStringLiteral("未知");
+}
+
+/** 订单状态 -> 中文显示 */
+inline QString orderStateText(OrderState s)
+{
+    switch (s) {
+    case OrderState::Charging: return QStringLiteral("充电中");
+    case OrderState::Finished: return QStringLiteral("已完成");
+    case OrderState::Canceled: return QStringLiteral("已取消");
+    }
+    return QStringLiteral("未知");
+}
+
 /** 金额格式化辅助（保留两位小数） */
 inline QString money(double v)
 {
