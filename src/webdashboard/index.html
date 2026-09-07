@@ -143,11 +143,21 @@
       line-height: 1.3;
       color: #334155;
     }
+    /* 卡片内容区：左侧大数字 + 右侧注释说明，横向分栏 */
+    .kpi-main {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 4px 14px;
+      min-width: 0;
+    }
     .kpi-value-row {
       display: flex;
       align-items: baseline;
       gap: 7px;
       margin-top: 0;
+      flex: 0 0 auto;
     }
     .kpi-value {
       font-family: "Bahnschrift", "DIN Alternate", "Segoe UI", "PingFang SC", sans-serif;
@@ -166,11 +176,14 @@
       white-space: nowrap;
     }
     .kpi-sub {
-      margin-top: 4px;
+      flex: 1 1 auto;
+      min-width: 0;
+      margin-top: 0;
       font-size: 14px;
       line-height: 1.2;
       color: var(--muted);
       letter-spacing: 0.1px;
+      text-align: right;
     }
 
     /* ---------------- 图表面板 ---------------- */
@@ -315,38 +328,46 @@
       <section class="kpi-grid" aria-label="关键指标">
         <article class="kpi-card kpi-card--total">
           <div class="kpi-label">设备规模</div>
-          <div class="kpi-value-row">
-            <span class="kpi-value" data-count="128" data-decimals="0">0</span>
-            <span class="kpi-unit">台</span>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" data-count="128" data-decimals="0">0</span>
+              <span class="kpi-unit">台</span>
+            </div>
+            <div class="kpi-sub">已接入全部充电站点</div>
           </div>
-          <div class="kpi-sub">已接入全部充电站点</div>
         </article>
 
         <article class="kpi-card kpi-card--health">
           <div class="kpi-label">实时健康率</div>
-          <div class="kpi-value-row">
-            <span class="kpi-value" data-count="96.9" data-decimals="1">0</span>
-            <span class="kpi-unit">%</span>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" data-count="96.9" data-decimals="1">0</span>
+              <span class="kpi-unit">%</span>
+            </div>
+            <div class="kpi-sub">健康桩 124 / 128</div>
           </div>
-          <div class="kpi-sub">健康桩 124 / 128</div>
         </article>
 
         <article class="kpi-card kpi-card--load">
           <div class="kpi-label">今日负荷</div>
-          <div class="kpi-value-row">
-            <span class="kpi-value" data-count="3842" data-decimals="0">0</span>
-            <span class="kpi-unit">kWh</span>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" data-count="3842" data-decimals="0">0</span>
+              <span class="kpi-unit">kWh</span>
+            </div>
+            <div class="kpi-sub">峰值 19:00 · 860 kW</div>
           </div>
-          <div class="kpi-sub">峰值 19:00 · 860 kW</div>
         </article>
 
         <article class="kpi-card kpi-card--danger">
           <div class="kpi-label">异常自愈</div>
-          <div class="kpi-value-row">
-            <span class="kpi-value" data-count="4" data-decimals="0">0</span>
-            <span class="kpi-unit">台</span>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" data-count="4" data-decimals="0">0</span>
+              <span class="kpi-unit">台</span>
+            </div>
+            <div class="kpi-sub">待检修队列，需优先处理</div>
           </div>
-          <div class="kpi-sub">待检修队列，需优先处理</div>
         </article>
       </section>
 
