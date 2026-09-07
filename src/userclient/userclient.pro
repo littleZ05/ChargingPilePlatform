@@ -10,13 +10,22 @@ INCLUDEPATH += $$PWD/../common
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    loginpage.cpp \
+    stationpage.cpp \
+    stationdetailpage.cpp \
+    profilepage.cpp \
+    mappage.cpp
 
 HEADERS += \
     mainwindow.h \
+    loginpage.h \
+    stationpage.h \
+    stationdetailpage.h \
+    profilepage.h \
+    mappage.h \
+    station.h \
+    tencentkey.h \
     ../common/common.h
-
-FORMS += \
-    mainwindow.ui
 
 QMAKE_CXXFLAGS += -Wall
