@@ -16,6 +16,7 @@
 #include <QNetworkRequest>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -35,7 +36,7 @@ StationPage::StationPage(QWidget *parent)
     title->setObjectName(QStringLiteral("pageTitle"));
     layout->addWidget(title);
 
-    m_locLabel = new QLabel(QStringLiteral("当前定位：%1").arg(gUserLocation.label), this);
+    m_locLabel = new QLabel(QStringLiteral("当前定位：定位中…"), this);
     m_locLabel->setObjectName(QStringLiteral("hintText"));
     layout->addWidget(m_locLabel);
 
@@ -53,9 +54,9 @@ StationPage::StationPage(QWidget *parent)
     searchRow->addWidget(locBtn);
     layout->addLayout(searchRow);
 
-    auto *listTitle = new QLabel(QStringLiteral("附近充电站(按距离排序)"), this);
-    listTitle->setObjectName(QStringLiteral("hintText"));
-    layout->addWidget(listTitle);
+    m_listTitle = new QLabel(QStringLiteral("附近充电站(按距离排序)"), this);
+    m_listTitle->setObjectName(QStringLiteral("hintText"));
+    layout->addWidget(m_listTitle);
 
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("stationList"));
@@ -71,6 +72,7 @@ StationPage::StationPage(QWidget *parent)
     connect(locBtn, &QPushButton::clicked, this, &StationPage::relocate);
 
     rebuildList();
+    locateByIp();
 }
 
 void StationPage::sortByDistance()
@@ -93,6 +95,7 @@ void StationPage::relocate()
         m_locLabel->setText(QStringLiteral("当前定位：%1").arg(gUserLocation.label));
         sortByDistance();
         rebuildList();
+        searchNearbyStations();
         return;
     }
 
@@ -122,7 +125,6 @@ void StationPage::onGeocodeReply(QNetworkReply *reply)
 
     double lat = 0.0, lng = 0.0;
     QString label = typed;
-    QString errMsg;
     bool resolved = false;
 
     if (ok) {
@@ -144,18 +146,13 @@ void StationPage::onGeocodeReply(QNetworkReply *reply)
                     }
                     resolved = true;
                 }
-            } else {
-                // 腾讯返回错误（如 121 每日调用量已达上限），透出具体 message 便于排查
-                errMsg = root.value(QStringLiteral("message")).toString();
             }
         }
     }
 
     if (!resolved) {
-        const QString text = errMsg.isEmpty()
-            ? QStringLiteral("未找到该地址，请检查后重试（如：浑南科技园）")
-            : QStringLiteral("定位失败：%1").arg(errMsg);
-        QMessageBox::information(this, QStringLiteral("定位失败"), text);
+        // 地址解析失败（配额用尽/网络/无结果）→ 回退到地点搜索再定位一次
+        relocateByPlaceSearch(typed);
         return;
     }
 
@@ -165,6 +162,72 @@ void StationPage::onGeocodeReply(QNetworkReply *reply)
     m_locLabel->setText(QStringLiteral("当前定位：%1").arg(label));
     sortByDistance();
     rebuildList();
+    searchNearbyStations();
+}
+
+void StationPage::relocateByPlaceSearch(const QString &addr)
+{
+    ++m_geoSeq;
+    QUrl url(QStringLiteral("https://apis.map.qq.com/ws/place/v1/search"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("keyword"), addr);
+    q.addQueryItem(QStringLiteral("boundary"),
+                   QStringLiteral("nearby(%1,%2,50000)").arg(gUserLocation.lat).arg(gUserLocation.lng));
+    q.addQueryItem(QStringLiteral("page_size"), QStringLiteral("1"));
+    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    url.setQuery(q);
+
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", "UserClient/1.0");
+    QNetworkReply *reply = m_nam->get(req);
+    reply->setProperty("seq", m_geoSeq);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] { onRelocatePlaceReply(reply); });
+}
+
+void StationPage::onRelocatePlaceReply(QNetworkReply *reply)
+{
+    const bool stale = (reply->property("seq").toInt() != m_geoSeq);
+    const bool ok = !stale && reply->error() == QNetworkReply::NoError;
+    const QByteArray data = ok ? reply->readAll() : QByteArray();
+    reply->deleteLater();
+
+    if (stale) return;
+
+    double lat = 0.0, lng = 0.0;
+    QString label = m_searchEdit->text().trimmed();
+    bool resolved = false;
+
+    if (ok) {
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isObject() && doc.object().value(QStringLiteral("status")).toInt() == 0) {
+            const QJsonArray arr = doc.object().value(QStringLiteral("data")).toArray();
+            if (!arr.isEmpty()) {
+                const QJsonObject o = arr.first().toObject();
+                const QJsonObject loc = o.value(QStringLiteral("location")).toObject();
+                lat = loc.value(QStringLiteral("lat")).toDouble();
+                lng = loc.value(QStringLiteral("lng")).toDouble();
+                const QString title = o.value(QStringLiteral("title")).toString();
+                if (lat != 0.0 || lng != 0.0) {
+                    if (!title.isEmpty()) label = title;
+                    resolved = true;
+                }
+            }
+        }
+    }
+
+    if (!resolved) {
+        QMessageBox::information(this, QStringLiteral("定位失败"),
+                                 QStringLiteral("未找到该地址，请检查后重试（如：浑南科技园）"));
+        return;
+    }
+
+    gUserLocation.lat = lat;
+    gUserLocation.lng = lng;
+    gUserLocation.label = label;
+    m_locLabel->setText(QStringLiteral("当前定位：%1").arg(label));
+    sortByDistance();
+    rebuildList();
+    searchNearbyStations();
 }
 
 void StationPage::rebuildList()
@@ -262,4 +325,116 @@ QWidget *StationPage::makeStationCard(const Station &s)
     connect(card, &QPushButton::clicked, this, [this, s] { emit stationSelected(s); });
 
     return card;
+}
+
+void StationPage::searchNearbyStations()
+{
+    ++m_placeSeq;
+    QUrl url(QStringLiteral("https://apis.map.qq.com/ws/place/v1/search"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("keyword"), QStringLiteral("充电站"));
+    q.addQueryItem(QStringLiteral("boundary"),
+                   QStringLiteral("nearby(%1,%2,5000)").arg(gUserLocation.lat).arg(gUserLocation.lng));
+    q.addQueryItem(QStringLiteral("orderby"), QStringLiteral("_distance"));
+    q.addQueryItem(QStringLiteral("page_size"), QStringLiteral("20"));
+    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    url.setQuery(q);
+
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", "UserClient/1.0");
+    QNetworkReply *reply = m_nam->get(req);
+    reply->setProperty("seq", m_placeSeq);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] { onPlaceSearchReply(reply); });
+}
+
+void StationPage::onPlaceSearchReply(QNetworkReply *reply)
+{
+    const bool stale = (reply->property("seq").toInt() != m_placeSeq);
+    const bool ok = !stale && reply->error() == QNetworkReply::NoError;
+    const QByteArray data = ok ? reply->readAll() : QByteArray();
+    reply->deleteLater();
+
+    if (stale) return;
+
+    QVector<Station> found;
+    if (ok) {
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isObject() && doc.object().value(QStringLiteral("status")).toInt() == 0) {
+            const QJsonArray arr = doc.object().value(QStringLiteral("data")).toArray();
+            for (const QJsonValue &v : arr) {
+                const QJsonObject o = v.toObject();
+                const QJsonObject loc = o.value(QStringLiteral("location")).toObject();
+                const double lat = loc.value(QStringLiteral("lat")).toDouble();
+                const double lng = loc.value(QStringLiteral("lng")).toDouble();
+                const QString name = o.value(QStringLiteral("title")).toString();
+                const QString addr = o.value(QStringLiteral("address")).toString();
+                if (name.isEmpty() || (lat == 0.0 && lng == 0.0)) continue;
+                found.append(makePoiStation(name, addr, lat, lng));
+            }
+        }
+    }
+
+    if (found.isEmpty()) {
+        // 失败（配额/网络/无结果）→ 保留演示数据，标题透出具体原因便于排查
+        QString why = QStringLiteral("真实查询失败");
+        if (ok) {
+            const QJsonObject root = QJsonDocument::fromJson(data).object();
+            const int st = root.value(QStringLiteral("status")).toInt();
+            const QString msg = root.value(QStringLiteral("message")).toString();
+            if (st != 0 && !msg.isEmpty()) why = msg;
+        }
+        m_listTitle->setText(QStringLiteral("附近充电站(演示数据 · %1)").arg(why));
+        return;
+    }
+
+    m_stations = found;
+    sortByDistance();
+    rebuildList();
+    m_listTitle->setText(QStringLiteral("附近充电站(腾讯真实 · 共%1家)").arg(found.size()));
+}
+
+void StationPage::locateByIp()
+{
+    ++m_ipSeq;
+    QUrl url(QStringLiteral("https://apis.map.qq.com/ws/location/v1/ip"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    url.setQuery(q);
+
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", "UserClient/1.0");
+    QNetworkReply *reply = m_nam->get(req);
+    reply->setProperty("seq", m_ipSeq);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] { onIpLocationReply(reply); });
+}
+
+void StationPage::onIpLocationReply(QNetworkReply *reply)
+{
+    const bool stale = (reply->property("seq").toInt() != m_ipSeq);
+    const bool ok = !stale && reply->error() == QNetworkReply::NoError;
+    const QByteArray data = ok ? reply->readAll() : QByteArray();
+    reply->deleteLater();
+
+    if (stale) return;
+
+    if (ok) {
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isObject() && doc.object().value(QStringLiteral("status")).toInt() == 0) {
+            const QJsonObject result = doc.object().value(QStringLiteral("result")).toObject();
+            const QJsonObject loc = result.value(QStringLiteral("location")).toObject();
+            const double lat = loc.value(QStringLiteral("lat")).toDouble();
+            const double lng = loc.value(QStringLiteral("lng")).toDouble();
+            if (lat != 0.0 || lng != 0.0) {
+                const QJsonObject ad = result.value(QStringLiteral("ad_info")).toObject();
+                const QString city = ad.value(QStringLiteral("city")).toString();
+                gUserLocation.lat = lat;
+                gUserLocation.lng = lng;
+                gUserLocation.label = city.isEmpty() ? QStringLiteral("当前位置") : city;
+            }
+        }
+    }
+
+    // 无论 IP 定位成败，都刷新一次周边电站（失败则沿用默认演示坐标）
+    m_locLabel->setText(QStringLiteral("当前定位：%1").arg(gUserLocation.label));
+    searchNearbyStations();
 }

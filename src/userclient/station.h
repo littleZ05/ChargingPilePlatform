@@ -109,6 +109,40 @@ inline QVector<Order> mockOrders()
     };
 }
 
+/** 简单稳定哈希：让同一个真实充电站在不同运行中呈现一致的模拟状态。 */
+inline int stableHash(const QString &s, int lo, int hi)
+{
+    int h = 0;
+    for (const QChar c : s)
+        h = h * 131 + c.unicode();
+    if (h < 0) h = -h;
+    return lo + (h % (hi - lo + 1));
+}
+
+/**
+ * 由腾讯「周边搜索」返回的真实 POI 构造 Station。
+ * 腾讯只提供名称/地址/经纬度（静态信息）；价格、桩数、空闲数、在线率等实时状态
+ * 腾讯拿不到，这里用稳定哈希生成「模拟值」占位（与 mock 同理），
+ * 后续接入服务器 / 运营商接口后可替换为真实值。
+ */
+inline Station makePoiStation(const QString &name, const QString &address,
+                              double lat, double lng)
+{
+    Station s;
+    s.name = name;
+    s.address = address;
+    s.latitude = lat;
+    s.longitude = lng;
+    s.price      = 1.00 + 0.05 * stableHash(name, 0, 6);   // 1.00 ~ 1.30 元/度
+    s.totalPiles = stableHash(name, 4, 20);
+    s.idlePiles  = stableHash(name, 0, s.totalPiles);
+    s.onlineRate = 80.0 + stableHash(name, 0, 20);          // 80 ~ 100 %
+    s.type       = QStringLiteral("快充");
+    s.pilePrefix = QStringLiteral("TC");                    // 真实 POI 无桩号，用通用前缀
+    s.piles      = buildPiles(s.pilePrefix, s.totalPiles, s.idlePiles, s.type);
+    return s;
+}
+
 /**
  * 创新点1「闲时动态计费」的用户侧展示逻辑。
  * 阈值/折扣统一取 common.h 的 cp::Pricing（组长维护），不再本地重复定义。
