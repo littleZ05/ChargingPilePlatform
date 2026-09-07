@@ -21,6 +21,8 @@ error_utils_tests
 tst_schema
 tst_stationstore
 tst_stationui
+InnovationDemo
+innovation_tests
 debug/
 release/
 build*/
