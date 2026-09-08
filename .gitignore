@@ -23,6 +23,7 @@ tst_schema
 tst_stationstore
 tst_stationui
 tst_services
+tst_protocol
 InnovationDemo
 innovation_tests
 debug/
