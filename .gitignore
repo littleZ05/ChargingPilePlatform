@@ -22,6 +22,7 @@ packet_assembler_tests
 tst_schema
 tst_stationstore
 tst_stationui
+tst_services
 InnovationDemo
 innovation_tests
 debug/
