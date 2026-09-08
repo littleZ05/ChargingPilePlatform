@@ -46,4 +46,6 @@ cd src && qmake6 && make
 - 错误处理：`error_utils.h`（错误码/中文文案/手机号、金额校验）+ `ui/error_notify.h`（统一弹窗/状态栏提示），
   接入方式见 [docs/错误处理接入指南.md](../docs/错误处理接入指南.md)；
 - 规则常量：`common.h` 中 `cp::Pricing`（动态计费）与 `cp::SelfHeal`（自愈告警）参数集中可调；
-- 单元测试：`cd src/common/tests && qmake6 && make && ./error_utils_tests`。
+- 单元测试：
+  `cd src/common/tests && qmake6 error_utils_tests.pro && make && ./error_utils_tests`；
+  `cd src/common/tests && qmake6 packet_assembler_tests.pro && make && ./packet_assembler_tests`。
