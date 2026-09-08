@@ -11,7 +11,7 @@ REPO="/home/bit/桌面/dongruan_ws/ChargingPilePlatform"
 SRC="$REPO/src"
 
 echo "== 0/6 拉取并构建最新代码 =="
-git -C "$REPO" pull --ff-only 2>&1 | tail -1
+env -u LD_PRELOAD git -C "$REPO" pull --ff-only 2>&1 | tail -1
 for d in pcserver innovation_demo; do
   ( cd "$SRC/$d" && qmake6 >/dev/null 2>&1 && make -s -j4 >/dev/null 2>&1 ) \
     && echo "  ✅ $d 构建完成" || echo "  ⚠️  $d 构建失败"
