@@ -6,6 +6,8 @@
 
 #include "mainwindow.h"
 #include "stationstore.h"
+#include "pricingservice.h"
+#include "selfhealservice.h"
 
 int main(int argc, char *argv[])
 {
@@ -36,5 +38,17 @@ int main(int argc, char *argv[])
 
     MainWindow window(&store, adminName);
     window.show();
+
+    // 创新点落地：服务器端自动服务（价格策略 + 自愈检查），无需人工操作
+    pcserver::PricingService pricing(dbPath);
+    QObject::connect(&pricing, &pcserver::PricingService::message,
+                     [](const QString &m) { qInfo().noquote() << m; });
+    pricing.start(30000);
+
+    pcserver::SelfHealService selfHeal(dbPath);
+    QObject::connect(&selfHeal, &pcserver::SelfHealService::message,
+                     [](const QString &m) { qInfo().noquote() << m; });
+    selfHeal.start(10000);
+
     return app.exec();
 }

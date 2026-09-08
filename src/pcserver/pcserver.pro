@@ -14,12 +14,16 @@ SOURCES += \
     addstationdialog.cpp \
     main.cpp \
     mainwindow.cpp \
-    stationstore.cpp
+    stationstore.cpp \
+    pricingservice.cpp \
+    selfhealservice.cpp
 
 HEADERS += \
     addstationdialog.h \
     mainwindow.h \
     stationstore.h \
+    pricingservice.h \
+    selfhealservice.h \
     ../common/common.h
 
 FORMS += \
