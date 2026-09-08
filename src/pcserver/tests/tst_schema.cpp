@@ -3,10 +3,10 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
-#include <QTemporaryDir>
 #include <QVariant>
 
 #include "../stationstore.h"
+#include "test_dbpath.h"
 
 using namespace pcserver;
 
@@ -57,12 +57,11 @@ private slots:
 
 void TstSchema::coreTablesExistWithPrimaryKey()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_core.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_core.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
 
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
@@ -93,12 +92,11 @@ void TstSchema::coreTablesExistWithPrimaryKey()
 
 void TstSchema::coreColumnsAndTypes()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_types.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_types.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
 
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
@@ -139,12 +137,11 @@ void TstSchema::coreColumnsAndTypes()
 
 void TstSchema::foreignKeysAreDeclared()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_fk.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_fk.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
 
@@ -174,12 +171,11 @@ void TstSchema::foreignKeysAreDeclared()
 
 void TstSchema::uniqueConstraintsRejectDuplicates()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_unique.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_unique.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
 
@@ -213,12 +209,11 @@ void TstSchema::uniqueConstraintsRejectDuplicates()
 
 void TstSchema::checkConstraintsRejectInvalidValues()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_check.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_check.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
     QSqlQuery q(db);
@@ -274,12 +269,11 @@ void TstSchema::checkConstraintsRejectInvalidValues()
 
 void TstSchema::orderPileStationConsistencyTrigger()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_trigger.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_trigger.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
     QSqlQuery q(db);
@@ -318,12 +312,11 @@ void TstSchema::orderPileStationConsistencyTrigger()
 
 void TstSchema::deleteStationCascadesToPiles()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_cascade.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_cascade.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
     QSqlQuery q(db);
@@ -346,12 +339,11 @@ void TstSchema::deleteStationCascadesToPiles()
 
 void TstSchema::performanceIndexesExist()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_index.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_index.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
 
@@ -389,12 +381,11 @@ void TstSchema::performanceIndexesExist()
 
 void TstSchema::explainPlanUsesStationStartIndex()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("schema_plan.db")), &error),
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("schema_plan.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error),
              qPrintable(error));
     QSqlDatabase db = QSqlDatabase::database(store.connectionName());
 

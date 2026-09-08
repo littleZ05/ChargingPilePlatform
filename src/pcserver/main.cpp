@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QMessageBox>
@@ -9,8 +10,10 @@
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("ChargingPilePlatform"));
+    QCoreApplication::setApplicationName(QStringLiteral("PcServer"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.0"));
 
-    // 演示数据库放在可执行文件同级目录（*.db 已被 .gitignore 排除，不进入版本库）
     const QString dbPath =
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("chargingpile.db"));
 
@@ -22,10 +25,16 @@ int main(int argc, char *argv[])
     }
 
     QString seedError;
-    if (!store.seedDemoIfEmpty(&seedError))
+    if (!store.seedDemoIfEmpty(&seedError)) {
         qWarning() << "[station] 演示数据初始化失败:" << seedError;
+    }
 
-    MainWindow w(&store);
-    w.show();
+    QString adminName;
+    if (!pcserver::showAdminLogin(nullptr, &adminName)) {
+        return 0;
+    }
+
+    MainWindow window(&store, adminName);
+    window.show();
     return app.exec();
 }

@@ -6,11 +6,11 @@
 #include <QSpinBox>
 #include <QStringList>
 #include <QTableWidget>
-#include <QTemporaryDir>
 
 #include "../addstationdialog.h"
 #include "../mainwindow.h"
 #include "../stationstore.h"
+#include "test_dbpath.h"
 
 using namespace pcserver;
 
@@ -31,12 +31,11 @@ private slots:
 
 void TstStationUi::stationListHeadersMatchRequirement()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
     QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
 
     MainWindow window(&store);
@@ -55,12 +54,11 @@ void TstStationUi::stationListHeadersMatchRequirement()
 
 void TstStationUi::stationListShowsSeededRows()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui2.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui2.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
     QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
 
     MainWindow window(&store);
@@ -83,12 +81,11 @@ void TstStationUi::stationListShowsSeededRows()
 
 void TstStationUi::stationListRefreshesAfterStoreInsert()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui3.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui3.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
 
     MainWindow window(&store);
     auto *table = window.findChild<QTableWidget *>(QStringLiteral("stationTable"));
@@ -108,12 +105,11 @@ void TstStationUi::stationListRefreshesAfterStoreInsert()
 
 void TstStationUi::selectingStationRowShowsItsPiles()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui4.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui4.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
     QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
 
     MainWindow window(&store);
@@ -140,12 +136,11 @@ void TstStationUi::selectingStationRowShowsItsPiles()
 
 void TstStationUi::switchingStationRowSwitchesPileDetail()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui5.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui5.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
     QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
 
     MainWindow window(&store);
@@ -208,12 +203,11 @@ void TstStationUi::addStationDialogAcceptsValidInput()
 
 void TstStationUi::realtimeSimulationTickChangesPileState()
 {
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-
     QString error;
     StationStore store;
-    QVERIFY2(store.open(dir.filePath(QStringLiteral("ui6.db")), &error), qPrintable(error));
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui6.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
     QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
 
     MainWindow window(&store);

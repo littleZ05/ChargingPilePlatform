@@ -1,6 +1,8 @@
 #include "stationstore.h"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -72,14 +74,28 @@ StationStore::~StationStore()
 bool StationStore::open(const QString &dbPath, QString *error)
 {
     close();
+    const QFileInfo dbInfo(dbPath);
+    QDir().mkpath(dbInfo.absolutePath());
+    QFile dbFile(dbInfo.absoluteFilePath());
+    if (!dbFile.exists()) {
+        if (!dbFile.open(QIODevice::WriteOnly)) {
+            if (error)
+                *error = QStringLiteral("无法创建数据库文件 %1：%2")
+                             .arg(dbInfo.absoluteFilePath(), dbFile.errorString());
+            return false;
+        }
+        dbFile.close();
+    }
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
-    m_db.setDatabaseName(dbPath);
+    m_db.setDatabaseName(dbInfo.absoluteFilePath());
     if (!m_db.open()) {
         if (error)
             *error = QStringLiteral("无法打开数据库 %1：%2")
-                         .arg(dbPath, m_db.lastError().text());
+                         .arg(dbInfo.absoluteFilePath(), m_db.lastError().text());
         return false;
     }
+    QSqlQuery pragma(m_db);
+    pragma.exec(QStringLiteral("PRAGMA foreign_keys = ON"));
     if (!executeSchema(error)) {
         close();
         return false;
