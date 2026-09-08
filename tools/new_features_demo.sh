@@ -38,12 +38,12 @@ pause "在 PcServer 里演示完成后继续"
 
 echo "== 2/6 弹出 sqlite3 观察窗口（创新点1 自动折扣真实链路） =="
 echo "   PcServer 已自动运行 PricingService：空闲电站应自动出现 8 折记录"
-open_term "cd '$SRC/pcserver' && echo '营销策略表（自动写入的闲时特惠）：' && sqlite3 -header -column chargingpile.db 'SELECT station_id,discount,is_active,rule_desc FROM marketing_strategy;' && echo '--- 电站当前空闲率参考 ---' && sqlite3 -header -column chargingpile.db 'SELECT station_id, COUNT(*) AS total, SUM(state=0) AS idle FROM piles GROUP BY station_id;' && echo '回车关闭' && read"
+open_term "cd '$SRC/pcserver' && echo '先把演示电站置为全空闲(空闲率100%)，等待自动引擎下一轮(<=10s)...' && sqlite3 chargingpile.db 'UPDATE piles SET state=0;' && sleep 12 && echo '营销策略表（自动写入的闲时特惠）：' && sqlite3 -header -column chargingpile.db 'SELECT station_id,discount,is_active,rule_desc FROM marketing_strategy;' && echo '--- 电站空闲率 ---' && sqlite3 -header -column chargingpile.db 'SELECT station_id, COUNT(*) AS total, SUM(state=0) AS idle FROM piles GROUP BY station_id;' && echo '回车关闭' && read"
 pause "看完营销策略表后继续"
 
 echo "== 3/6 注入连续低功率并观察 创新点2 自愈自动重启 =="
 echo "   将向充电桩 1 写入阈值与 3 条低功率日志，10 秒内 PcServer 应自动触发重启"
-open_term "cd '$SRC/pcserver' && sqlite3 chargingpile.db \"INSERT OR IGNORE INTO pile_health_metrics(pile_id,avg_power,low_threshold,high_threshold) VALUES(1,60,48,72); INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,10),(1,10),(1,10);\" && echo '已注入 3 条低功率(10kW)，阈值 48kW' && for i in \$(seq 1 12); do echo \"--- 第 \$i 秒 状态 ---\"; sqlite3 -header -column chargingpile.db 'SELECT p.id,p.state,p.code FROM piles p WHERE p.id=1; SELECT COUNT(*) AS restart_logs FROM pile_power_logs WHERE pile_id=1 AND real_power>45;'; sleep 2; done && echo '若 state 曾=2 后回 0、restart_logs 增加，说明自愈自动重启成功' && echo '回车关闭' && read"
+open_term "pgrep -x PcServer >/dev/null || echo '!! PcServer 未运行：请先启动并登录再重跑本步'; cd '$SRC/pcserver' && sqlite3 chargingpile.db \"INSERT OR IGNORE INTO pile_health_metrics(pile_id,avg_power,low_threshold,high_threshold) VALUES(1,60,48,72); INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,10),(1,10),(1,10);\" && echo '已注入 3 条低功率(10kW)，阈值 48kW，等待自愈服务(<=10s)...' && for i in \$(seq 1 12); do echo \"--- 第 \$i 秒 状态 ---\"; sqlite3 -header -column chargingpile.db 'SELECT p.id,p.state,p.code FROM piles p WHERE p.id=1; SELECT COUNT(*) AS restart_logs FROM pile_power_logs WHERE pile_id=1 AND real_power>45;'; sleep 2; done && echo '若 state 曾=2 后回 0、restart_logs 增加，说明自愈自动重启成功' && echo '回车关闭' && read"
 pause "观察自愈触发后继续"
 
 echo "== 4/6 弹出网络层测试窗口（NO.19，联调用底层） =="

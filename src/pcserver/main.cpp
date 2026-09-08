@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     pcserver::PricingService pricing(dbPath);
     QObject::connect(&pricing, &pcserver::PricingService::message,
                      [](const QString &m) { qInfo().noquote() << m; });
-    pricing.start(30000);
+    pricing.start(10000);
 
     pcserver::SelfHealService selfHeal(dbPath);
     QObject::connect(&selfHeal, &pcserver::SelfHealService::message,
