@@ -56,16 +56,30 @@ void PricingService::applyStrategy(int stationId, double rate)
     QSqlQuery q(m_db);
     const bool discount = rate > cp::Pricing::kIdleRateThreshold * 100.0;
     if (discount) {
+        // 兼容无 UNIQUE(station_id) 约束的表结构：先更新，无行则插入
         q.prepare(QStringLiteral(
-            "INSERT INTO marketing_strategy(station_id,base_price,discount,rule_desc,is_active) "
-            "VALUES(?, (SELECT base_price FROM stations WHERE id=?), ?, ?, 1) "
-            "ON CONFLICT(station_id) DO UPDATE SET discount=excluded.discount,"
-            " rule_desc=excluded.rule_desc, is_active=1"));
-        q.addBindValue(stationId);
+            "UPDATE marketing_strategy SET discount=?, rule_desc=?, is_active=1 "
+            "WHERE station_id=?"));
         q.addBindValue(stationId);
         q.addBindValue(cp::Pricing::kDiscount);
         q.addBindValue(QStringLiteral("自动引擎：空闲率>60% 闲时特惠"));
-        if (q.exec())
+        bool ok = q.exec();
+        if (ok && q.numRowsAffected() == 0) {
+            // 兼容无 UNIQUE 约束：插入前清理该站旧策略，保证每站仅一条生效记录
+            QSqlQuery clean(m_db);
+            clean.prepare(QStringLiteral("DELETE FROM marketing_strategy WHERE station_id=?"));
+            clean.addBindValue(stationId);
+            clean.exec();
+            q.prepare(QStringLiteral(
+                "INSERT INTO marketing_strategy(station_id,base_price,discount,rule_desc,is_active) "
+                "VALUES(?, (SELECT base_price FROM stations WHERE id=?), ?, ?, 1)"));
+            q.addBindValue(stationId);
+            q.addBindValue(stationId);
+            q.addBindValue(cp::Pricing::kDiscount);
+            q.addBindValue(QStringLiteral("自动引擎：空闲率>60% 闲时特惠"));
+            ok = q.exec();
+        }
+        if (ok)
             emit message(QStringLiteral("[价格策略] 电站 %1：空闲率 %2%>60%，8 折生效")
                              .arg(stationId).arg(rate, 0, 'f', 1));
     } else {

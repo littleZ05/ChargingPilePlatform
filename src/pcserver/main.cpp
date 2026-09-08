@@ -31,8 +31,11 @@ int main(int argc, char *argv[])
         qWarning() << "[station] 演示数据初始化失败:" << seedError;
     }
 
+    // 开发/自动化演示：PCSERVER_AUTOLOGIN=1 时跳过登录（正常使用仍走登录框）
     QString adminName;
-    if (!pcserver::showAdminLogin(nullptr, &adminName)) {
+    if (qEnvironmentVariableIntValue("PCSERVER_AUTOLOGIN")) {
+        adminName = QStringLiteral("admin");
+    } else if (!pcserver::showAdminLogin(nullptr, &adminName)) {
         return 0;
     }
 
