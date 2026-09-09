@@ -20,7 +20,7 @@ for a in "$@"; do
 done
 
 echo "== 0/6 环境检查 =="
-git -C "$REPO" pull --ff-only 2>&1 | tail -1
+env -u LD_PRELOAD git -C "$REPO" pull --ff-only 2>&1 | tail -1
 if [ -z "${TENCENT_MAP_KEY:-}" ]; then
   if [ "$NEED_MAP" = "1" ]; then
     echo "⚠️  未设置 TENCENT_MAP_KEY。"
