@@ -113,6 +113,33 @@ void StationPage::relocate()
     connect(reply, &QNetworkReply::finished, this, [this, reply] { onGeocodeReply(reply); });
 }
 
+void StationPage::applyServerStations(
+    const QVector<userclient::ServerStation> &stations)
+{
+    if (stations.isEmpty())
+        return;   // 回退：维持腾讯 POI 列表
+    m_stations.clear();
+    for (const userclient::ServerStation &st : stations) {
+        Station s;
+        s.name       = st.name;
+        s.address    = st.address;
+        s.latitude   = st.latitude;
+        s.longitude  = st.longitude;
+        s.price      = st.basePrice;   // 基础价；命中特惠由 effectivePrice 打折
+        s.totalPiles = st.totalPiles;
+        s.idlePiles  = st.idlePiles;
+        s.onlineRate = st.onlineRate;
+        s.serverSale = st.onSale;
+        s.type       = QStringLiteral("快慢兼有");
+        s.pilePrefix = QStringLiteral("S%1").arg(st.id);
+        s.piles      = buildPiles(s.pilePrefix, s.totalPiles, s.idlePiles,
+                                  QStringLiteral("快充"));
+        m_stations.append(s);
+    }
+    sortByDistance();
+    rebuildList();
+}
+
 void StationPage::onGeocodeReply(QNetworkReply *reply)
 {
     const bool stale = (reply->property("seq").toInt() != m_geoSeq);

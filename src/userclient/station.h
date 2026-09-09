@@ -28,6 +28,7 @@ struct Station {
     QString type;                // 快充 / 慢充 / 快慢兼有
     QString pilePrefix;          // 桩号前缀，如 "DS"
     QVector<Pile> piles;         // 站内电桩（buildPiles 生成）
+    bool serverSale = false;     // 服务器标记的闲时特惠（联调数据源）
 };
 
 /** 充电订单（对应数据库 orders 表，供「我的」页展示） */
@@ -147,7 +148,7 @@ inline double idleRateOf(const Station &s)
 /** 是否命中「闲时特惠」（空闲率超过阈值） */
 inline bool isOnSale(const Station &s)
 {
-    return idleRateOf(s) > cp::Pricing::kIdleRateThreshold;
+    return s.serverSale || idleRateOf(s) > cp::Pricing::kIdleRateThreshold;
 }
 
 /** 计费单价（命中闲时特惠则打折） */

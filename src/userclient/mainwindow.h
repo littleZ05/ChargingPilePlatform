@@ -39,6 +39,7 @@ private slots:
 
 private:
     void setupMainPage();
+    QString m_pendingLoginPhone;   // 登录时若尚未连接，待连接后补发 login/queryStations
 
     QStackedWidget    *m_root       = nullptr;
     QStackedWidget    *m_pageStack  = nullptr;

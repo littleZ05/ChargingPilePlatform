@@ -17,6 +17,8 @@ class ProfilePage : public QWidget
 public:
     explicit ProfilePage(QWidget *parent = nullptr);
     void setPhone(const QString &phone);
+    /** NO.6：服务器登录回执成功后刷新昵称/余额（离线时保持本地默认） */
+    void setUserInfo(const QString &nickname, double balance);
     /** 追加一条充电订单到列表最上方（NO.7：结束充电后由 MainWindow 桥接调用） */
     void addOrder(const Order &order);
 
