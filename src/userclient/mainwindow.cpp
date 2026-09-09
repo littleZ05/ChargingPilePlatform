@@ -53,6 +53,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_stationPage, &StationPage::stationSelected, this, &MainWindow::onStationSelected);
     connect(m_detailPage, &StationDetailPage::navigateRequested, this, &MainWindow::openMap);
     connect(m_profilePage, &ProfilePage::logoutRequested, this, &MainWindow::onLogout);
+    // NO.7：结束充电生成的新订单，追加到「我的」页订单列表
+    connect(m_detailPage, &StationDetailPage::chargeCompleted,
+            m_profilePage, &ProfilePage::addOrder);
 
     showTab(0);
     m_navGroup->button(0)->setChecked(true);
@@ -70,6 +73,9 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             });
     m_serverSession->start();
+
+    // NO.7：充电详情页结算触发点接入应用级会话
+    m_detailPage->setServerSession(m_serverSession);
 }
 
 MainWindow::~MainWindow()

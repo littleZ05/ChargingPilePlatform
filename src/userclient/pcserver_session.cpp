@@ -77,6 +77,7 @@ void PcServerSession::start()
     m_awaitingPong = false;
     m_missedAcks = 0;
     m_stationQueryPending = false;
+    m_orderReportPending = false;
     m_reconnectScheduled = false;
     m_reconnectDelayMs = m_reconnectBaseIntervalMs;
     m_heartbeatTimer->stop();
@@ -161,6 +162,29 @@ bool PcServerSession::queryStations(int stationId, int limit)
     return true;
 }
 
+bool PcServerSession::reportOrder(const QString &orderNo, const QString &pileCode,
+                                  double kwh, double amount)
+{
+    if (!m_running || !isConnected() || m_orderReportPending)
+        return false;
+
+    QJsonObject request;
+    request.insert(QStringLiteral("order_no"), orderNo.trimmed());
+    request.insert(QStringLiteral("pile_code"), pileCode.trimmed());
+    request.insert(QStringLiteral("kwh"), kwh);
+    request.insert(QStringLiteral("amount"), amount);
+    request.insert(QStringLiteral("ts"), QDateTime::currentSecsSinceEpoch());
+
+    const auto msgType = static_cast<quint16>(cp::MsgType::kOrderReport);
+    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
+        qWarning() << "[userclient][net] kOrderReport 发送失败";
+        return false;
+    }
+
+    m_orderReportPending = true;
+    return true;
+}
+
 void PcServerSession::connectNow()
 {
     if (!m_running)
@@ -227,6 +251,8 @@ void PcServerSession::onDisconnected()
 
     if (m_stationQueryPending)
         notifyQueryFailed(QStringLiteral("连接已断开，查询未完成"));
+    if (m_orderReportPending)
+        notifyOrderFailed(QStringLiteral("连接已断开，订单未上报"));
 
     if (wasConnected)
         emit connectedChanged(false);
@@ -247,6 +273,8 @@ void PcServerSession::onSocketError(const QString &errorString)
 
     if (m_stationQueryPending)
         notifyQueryFailed(QStringLiteral("连接错误：%1").arg(errorString));
+    if (m_orderReportPending)
+        notifyOrderFailed(QStringLiteral("连接错误：%1").arg(errorString));
 
     if (wasConnected)
         emit connectedChanged(false);
@@ -261,6 +289,9 @@ void PcServerSession::onPacketReceived(quint16 msgType, const QByteArray &body)
         break;
     case static_cast<quint16>(cp::MsgType::kStationQuery):
         handleStationQueryPacket(body);
+        break;
+    case static_cast<quint16>(cp::MsgType::kOrderReport):
+        handleOrderReportPacket(body);
         break;
     default:
         qWarning() << "[userclient][net] 收到未注册 MsgType:" << msgType;
@@ -392,6 +423,39 @@ void PcServerSession::notifyQueryFailed(const QString &reason)
         return;
     m_stationQueryPending = false;
     emit stationListReceived(-1, reason, QVector<ServerStation>());
+}
+
+void PcServerSession::handleOrderReportPacket(const QByteArray &body)
+{
+    if (!m_orderReportPending) {
+        qWarning() << "[userclient][net] 收到非预期的 kOrderReport 应答";
+        return;
+    }
+    m_orderReportPending = false;
+
+    QJsonObject response;
+    if (!parseJsonObject(body, &response)) {
+        emit orderReportResult(-1, QStringLiteral("订单应答不是 JSON 对象"),
+                               QString(), QString(), false, false);
+        return;
+    }
+
+    const int code = response.value(QStringLiteral("code")).toInt(-1);
+    const QString message = response.value(QStringLiteral("message")).toString();
+    const QString orderNo = response.value(QStringLiteral("order_no")).toString();
+    const QString pileCode = response.value(QStringLiteral("pile_code")).toString();
+    const bool received = response.value(QStringLiteral("received")).toBool();
+    const bool pileFreed = response.value(QStringLiteral("pile_freed")).toBool();
+
+    emit orderReportResult(code, message, orderNo, pileCode, received, pileFreed);
+}
+
+void PcServerSession::notifyOrderFailed(const QString &reason)
+{
+    if (!m_orderReportPending)
+        return;
+    m_orderReportPending = false;
+    emit orderReportResult(-1, reason, QString(), QString(), false, false);
 }
 
 } // namespace userclient

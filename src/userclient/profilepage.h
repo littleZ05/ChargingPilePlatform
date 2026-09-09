@@ -5,6 +5,7 @@
 #include "station.h"
 
 class QLabel;
+class QVBoxLayout;
 
 /** 个人中心（「我的」tab，NO.6，负责人：葛伊诺）。
  *  用户信息卡 + 充电订单 + 充值 + 退出登录。
@@ -16,6 +17,8 @@ class ProfilePage : public QWidget
 public:
     explicit ProfilePage(QWidget *parent = nullptr);
     void setPhone(const QString &phone);
+    /** 追加一条充电订单到列表最上方（NO.7：结束充电后由 MainWindow 桥接调用） */
+    void addOrder(const Order &order);
 
 signals:
     void logoutRequested();
@@ -26,6 +29,9 @@ private slots:
 
 private:
     QWidget *makeOrderCard(const Order &order, QWidget *parent);
+
+    QVBoxLayout *m_orderLayout = nullptr;
+    QLabel      *m_orderEmpty  = nullptr;
 
     QLabel *m_nickLabel    = nullptr;
     QLabel *m_phoneLabel   = nullptr;

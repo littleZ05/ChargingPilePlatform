@@ -72,6 +72,14 @@ public:
      */
     bool queryStations(int stationId = 0, int limit = 100);
 
+    /**
+     * 发送 kOrderReport 上报一次充电结算结果（异步，结果经 orderReportResult 返回）。
+     * 对应 docs/socket-protocol.md §3.3，body 携带 order_no/pile_code/kwh/amount。
+     * @return true 表示请求帧已写入发送缓冲；未运行/未连接/上一请求未返回时为 false。
+     */
+    bool reportOrder(const QString &orderNo, const QString &pileCode,
+                     double kwh, double amount);
+
     /** 以下计数供界面状态展示与自动化测试使用 */
     int heartbeatSentCount() const    { return m_heartbeatSentCount; }
     int pongAckCount() const          { return m_pongAckCount; }
@@ -84,6 +92,10 @@ signals:
     /** kStationQuery 应答：code 与协议错误码一致，非 0 时 stations 为空 */
     void stationListReceived(int code, const QString &message,
                              const QVector<ServerStation> &stations);
+    /** kOrderReport 应答：code 非 0 或 received=false 表示未受理；pileFreed 表示是否释放了充电桩 */
+    void orderReportResult(int code, const QString &message,
+                           const QString &orderNo, const QString &pileCode,
+                           bool received, bool pileFreed);
 
 private slots:
     void onConnected();
@@ -99,7 +111,9 @@ private:
     void sendHeartbeat();
     void handleHeartbeatPacket(const QByteArray &body);
     void handleStationQueryPacket(const QByteArray &body);
+    void handleOrderReportPacket(const QByteArray &body);
     void notifyQueryFailed(const QString &reason);
+    void notifyOrderFailed(const QString &reason);
 
     cp::NetClient *m_netClient = nullptr;         // 持有：子对象，生命周期由本类托管
     QString m_host = QStringLiteral("127.0.0.1");
@@ -122,6 +136,7 @@ private:
     int  m_missedAcks = 0;
 
     bool m_stationQueryPending = false;
+    bool m_orderReportPending = false;
     int  m_heartbeatSentCount = 0;
     int  m_pongAckCount = 0;
     int  m_reconnectAttemptCount = 0;
