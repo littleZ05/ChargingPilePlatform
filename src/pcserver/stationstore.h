@@ -3,7 +3,10 @@
 
 #include <QSqlDatabase>
 #include <QString>
+#include <QVariantList>
 #include <QVector>
+
+#include <functional>
 
 #include "../common/common.h"
 
@@ -53,6 +56,23 @@ public:
     void close();
     bool isOpen() const { return m_db.isOpen(); }
     QString connectionName() const { return m_connectionName; }
+
+    /**
+     * 事务执行器：回调返回 true 提交、false 回滚。
+     * 数据库管理/批量写入统一经由此入口，避免半写脏数据。
+     */
+    bool runInTransaction(const std::function<bool(QSqlDatabase &)> &fn,
+                          QString *error = nullptr);
+
+    /** SQLite 完整性检查（PRAGMA integrity_check），返回 "ok" 表示通过 */
+    bool integrityCheck(QString *report = nullptr);
+
+    /** 备份当前库到 destPath（VACUUM INTO；路径含单引号等危险字符时拒绝） */
+    bool backupTo(const QString &destPath, QString *error = nullptr);
+
+    /** 统一 prepare + bindValue 执行入口：业务 SQL 一律参数化，禁止拼接用户输入 */
+    bool execPrepared(const QString &sql, const QVariantList &binds,
+                      QString *error = nullptr);
 
     /** 电站为空时写入 3 个演示电站及其模拟电桩，方便界面演示/自测 */
     bool seedDemoIfEmpty(QString *error = nullptr);

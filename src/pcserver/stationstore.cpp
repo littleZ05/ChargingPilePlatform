@@ -112,6 +112,104 @@ void StationStore::close()
     }
 }
 
+bool StationStore::runInTransaction(const std::function<bool(QSqlDatabase &)> &fn,
+                                    QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+    if (!fn) {
+        if (error) *error = QStringLiteral("事务回调为空");
+        return false;
+    }
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    if (!db.transaction()) {
+        if (error) *error = QStringLiteral("开启事务失败：%1").arg(db.lastError().text());
+        return false;
+    }
+
+    if (!fn(db)) {
+        db.rollback();
+        if (error) *error = QStringLiteral("事务回调失败，已回滚");
+        return false;
+    }
+    if (!db.commit()) {
+        db.rollback();
+        if (error) *error = QStringLiteral("提交事务失败，已回滚：%1")
+                                .arg(db.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool StationStore::integrityCheck(QString *report)
+{
+    if (!isOpen()) {
+        if (report) *report = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("PRAGMA integrity_check"))) {
+        if (report) *report = QStringLiteral("完整性检查执行失败：%1")
+                                  .arg(query.lastError().text());
+        return false;
+    }
+
+    QStringList lines;
+    while (query.next())
+        lines << query.value(0).toString();
+    const QString text = lines.join(QLatin1Char('\n'));
+    if (report)
+        *report = text;
+    return text.trimmed() == QStringLiteral("ok");
+}
+
+bool StationStore::backupTo(const QString &destPath, QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+    if (destPath.trimmed().isEmpty()) {
+        if (error) *error = QStringLiteral("备份路径不能为空");
+        return false;
+    }
+    // 路径将进入 VACUUM INTO 的字符串字面量；单引号可破坏 SQL 边界，直接拒绝
+    if (destPath.contains(QLatin1Char('\''))) {
+        if (error) *error = QStringLiteral("备份路径不能包含单引号");
+        return false;
+    }
+
+    QString escaped = destPath;
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("VACUUM INTO '%1'").arg(escaped))) {
+        if (error) *error = QStringLiteral("备份失败：%1").arg(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool StationStore::execPrepared(const QString &sql, const QVariantList &binds,
+                                QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+    QSqlQuery query(m_db);
+    query.prepare(sql);
+    for (const QVariant &bind : binds)
+        query.addBindValue(bind);
+    if (!query.exec()) {
+        if (error) *error = QStringLiteral("SQL 执行失败：%1").arg(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
 bool StationStore::executeSchema(QString *error)
 {
     QFile schemaFile(QStringLiteral(":/database/schema.sql"));

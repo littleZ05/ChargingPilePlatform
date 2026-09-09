@@ -3,6 +3,16 @@
 > 负责人：陈庚泉（feat/flavourcatie）/ 毛悦琮
 > 技术栈：Linux + Qt 6 Widgets + C++17 + SQLite（QtSql）
 
+## 已实现：NO.13 用户管理（陈庚泉）
+
+1. **用户列表**：用户ID / 手机号 / 昵称 / 钱包余额(元) / 注册时间 / 状态；
+2. **风控冻结/解冻**：对选中用户冻结（`status=1`）或解冻（`status=0`），
+   带确认框并即时刷新；
+3. **手机号模糊搜索**：支持连续片段检索，`%`/`_` 通配符按字面量处理，
+   查询全部参数化 + ESCAPE 转义。
+
+测试：`tests/usermanagement_tests.pro`（offscreen）。
+
 ## 已实现：NO.12 充电站管理（陈庚泉）
 
 1. **充电站列表**：以表格展示
@@ -77,6 +87,10 @@ qmake6 <仓库>/src/pcserver/tests/tst_socketbiz.pro && make && QT_QPA_PLATFORM=
 # 数据库核心表契约/一致性/索引测试（schema.sql v2）
 mkdir -p /tmp/schema-test && cd /tmp/schema-test
 qmake6 <仓库>/src/pcserver/tests/schema_tests.pro && make && ./tst_schema
+
+# 用户管理测试（需要 Qt Charts）
+mkdir -p /tmp/user-test && cd /tmp/user-test
+qmake6 <仓库>/src/pcserver/tests/usermanagement_tests.pro && make && QT_QPA_PLATFORM=offscreen ./tst_usermanagement
 ```
 
 提交前请用 `git status` 确认 Makefile、`*.o`、`PcServer`、`*.db`、

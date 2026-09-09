@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include <QFileInfo>
 #include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -49,6 +50,9 @@ private slots:
     void seedDemoIfEmpty();
     void pileStateTextMapping();
     void nextSimulatedStateCyclesStates();
+    void runInTransactionRollsBackOnFailure();
+    void integrityCheckAndBackup();
+    void preparedStatementPreventsSqlInjection();
 };
 
 void TstStationStore::schemaCreatesContractTables()
@@ -331,6 +335,94 @@ void TstStationStore::nextSimulatedStateCyclesStates()
              cp::PileState::Idle);
     QCOMPARE(StationStore::nextSimulatedState(cp::PileState::Fault),
              cp::PileState::Idle);
+}
+
+void TstStationStore::runInTransactionRollsBackOnFailure()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("txn.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+
+    bool executed = false;
+    QVERIFY(!store.runInTransaction(
+        [&](QSqlDatabase &db) {
+            QSqlQuery insert(db);
+            executed = insert.exec(QStringLiteral(
+                "INSERT INTO stations(name, address, longitude, latitude) "
+                "VALUES ('事务回滚站', '沈阳市事务路 1 号', 123.0, 41.0)"));
+            return false; // 故意失败触发回滚
+        },
+        &error));
+    QVERIFY2(executed, "事务回调未执行");
+    QVERIFY(error.contains(QStringLiteral("回滚")));
+
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    QSqlQuery count(db);
+    QVERIFY(count.exec(QStringLiteral("SELECT COUNT(*) FROM stations")) && count.next());
+    QCOMPARE(count.value(0).toInt(), 0);
+}
+
+void TstStationStore::integrityCheckAndBackup()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("backup_src.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    QString report;
+    QVERIFY2(store.integrityCheck(&report), qPrintable(report));
+    QCOMPARE(report, QStringLiteral("ok"));
+
+    const QString backupPath = makeTestDatabasePath(QStringLiteral("backup_dst.db"));
+    QVERIFY2(!backupPath.isEmpty(), "无法创建备份文件目录");
+    QVERIFY2(store.backupTo(backupPath, &error), qPrintable(error));
+    QVERIFY(QFileInfo::exists(backupPath));
+
+    StationStore backupStore;
+    QVERIFY2(backupStore.open(backupPath, &error), qPrintable(error));
+    const auto stations = backupStore.listStations();
+    QCOMPARE(stations.size(), 3);
+    QCOMPARE(backupStore.listPiles(stations.first().id).size(),
+             stations.first().totalPiles);
+
+    // 危险路径必须拒绝，不允许 SQL 边界注入
+    QVERIFY(!store.backupTo(QStringLiteral("/tmp/evil'name.db"), &error));
+    QVERIFY(error.contains(QStringLiteral("单引号")));
+}
+
+void TstStationStore::preparedStatementPreventsSqlInjection()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("inject.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+
+    const QString evil = QStringLiteral("x'); DROP TABLE stations; --");
+    const QVariantList binds = {
+        evil, QStringLiteral("注入测试地址"), 123.456, 41.789, 0, 0.0
+    };
+    QVERIFY2(store.execPrepared(
+                 QStringLiteral(
+                     "INSERT INTO stations(name, address, longitude, latitude, "
+                     "total_piles, online_rate) VALUES(?, ?, ?, ?, ?, ?)"),
+                 binds, &error),
+             qPrintable(error));
+
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    QSqlQuery tableCheck(db);
+    QVERIFY(tableCheck.exec(QStringLiteral(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='stations'")));
+    QVERIFY(tableCheck.next());
+    QCOMPARE(tableCheck.value(0).toInt(), 1); // 表未被注入字符串删除/破坏
+
+    const auto stations = store.listStations();
+    QCOMPARE(stations.size(), 1);
+    QCOMPARE(stations.first().name, evil); // 注入串只作为普通数据保存
 }
 
 QTEST_MAIN(TstStationStore)

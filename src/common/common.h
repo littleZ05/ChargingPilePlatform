@@ -26,11 +26,47 @@ enum class OrderState {
     Canceled = 2   // 已取消
 };
 
-/** 用户端请求类型（Socket 协议帧 type 字段，按需扩展） */
+/**
+ * 业务消息类型（Socket 帧 type 字段，NO.15 维护人：陈庚泉）
+ * 约定：0-9 心跳/业务上报；10-19 账号类请求；20-29 管理类请求；
+ *       100-199 对应响应；499 统一错误响应。值一经发布保持稳定，只增不改。
+ */
 namespace MsgType {
-inline constexpr int kHeartbeat  = 0;   // 心跳
-inline constexpr int kStationQuery = 1; // 附近电站查询
-inline constexpr int kOrderReport = 2;  // 充电订单上报
+inline constexpr int kHeartbeat       = 0;   // 心跳（客户端→服务端）
+inline constexpr int kStationQuery    = 1;   // 附近电站查询
+inline constexpr int kOrderReport     = 2;   // 充电订单上报
+inline constexpr int kPileStateReport = 3;   // 电桩实时状态上报
+inline constexpr int kStartCharge     = 4;   // 开始充电
+inline constexpr int kStopCharge      = 5;   // 停止充电
+inline constexpr int kProfileQuery    = 6;   // 用户资料查询
+inline constexpr int kProfileUpdate   = 7;   // 用户资料修改
+
+inline constexpr int kLoginRequest    = 10;  // 管理员/用户登录
+inline constexpr int kRegisterRequest = 11;  // 用户注册
+
+inline constexpr int kPileManageRequest  = 20; // 充电桩管理（服务端）
+inline constexpr int kSalesQueryRequest  = 21; // 销售业绩查询
+inline constexpr int kUserManageRequest  = 22; // 用户管理
+inline constexpr int kStationManageRequest = 23; // 充电站管理
+inline constexpr int kAdminQueryRequest  = 24; // 管理员/权限查询
+
+inline constexpr int kHeartbeatResponse       = 100;
+inline constexpr int kStationQueryResponse    = 101;
+inline constexpr int kOrderReportResponse     = 102;
+inline constexpr int kPileStateReportResponse = 103;
+inline constexpr int kStartChargeResponse     = 104;
+inline constexpr int kStopChargeResponse      = 105;
+inline constexpr int kProfileQueryResponse    = 106;
+inline constexpr int kProfileUpdateResponse   = 107;
+inline constexpr int kLoginResponse           = 110;
+inline constexpr int kRegisterResponse        = 111;
+inline constexpr int kPileManageResponse      = 120;
+inline constexpr int kSalesQueryResponse      = 121;
+inline constexpr int kUserManageResponse      = 122;
+inline constexpr int kStationManageResponse   = 123;
+inline constexpr int kAdminQueryResponse      = 124;
+
+inline constexpr int kErrorResponse = 499;   // 统一错误响应帧类型
 }
 
 /**
