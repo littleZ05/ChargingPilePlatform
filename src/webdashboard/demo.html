@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>充电桩应用管理平台 · 演示</title>
+<style>
+:root{
+  --bg:#eef3f0; --panel:#ffffff; --ink:#3c4f49; --muted:#7a9188;
+  --teal:#6f9d92; --teal-deep:#3e7368; --mint:#a9c7bd; --sage:#cbdcd3;
+  --line:#dde8e2; --soft:#f6faf8; --shadow:0 12px 34px rgba(80,120,110,.10);
+  --ease:cubic-bezier(.22,.8,.3,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",system-ui,sans-serif;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, #dcebe4 0%, transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, #d6e6e1 0%, transparent 55%),
+    var(--bg);
+  color:var(--ink);
+  min-height:100%;
+  overflow:hidden;
+}
+.app{display:flex;flex-direction:column;height:100vh;padding:18px 26px 22px}
+
+/* ---------- 顶栏 ---------- */
+.topbar{display:flex;align-items:center;gap:22px;padding:10px 4px 14px}
+.brand{display:flex;align-items:center;gap:12px;font-weight:700;letter-spacing:.3px}
+.brand .dot{width:14px;height:14px;border-radius:50%;
+  background:linear-gradient(135deg,var(--teal),var(--mint));box-shadow:0 0 0 6px rgba(111,157,146,.14)}
+.brand small{display:block;font-weight:400;color:var(--muted);font-size:11px;letter-spacing:1px}
+
+.nav{display:flex;gap:4px;padding:5px;background:rgba(255,255,255,.72);
+  border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 18px rgba(80,120,110,.05)}
+.nav button{border:0;background:transparent;color:var(--muted);font-size:14px;
+  padding:8px 18px;border-radius:12px;cursor:pointer;transition:all .3s var(--ease)}
+.nav button:hover{color:var(--teal-deep);background:#f2f7f5}
+.nav button.active{color:#fff;background:linear-gradient(135deg,var(--teal-deep),var(--teal));
+  box-shadow:0 6px 16px rgba(62,115,104,.28)}
+.nav .dot-pill{display:none}
+.top-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.badge{font-size:12px;color:var(--teal-deep);background:#e2efe9;padding:5px 12px;border-radius:99px}
+.btn{border:0;background:linear-gradient(135deg,var(--teal-deep),var(--teal));color:#fff;
+  padding:9px 16px;border-radius:12px;font-size:13px;cursor:pointer;box-shadow:0 8px 18px rgba(62,115,104,.22);
+  transition:transform .25s var(--ease), box-shadow .25s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(62,115,104,.30)}
+.btn.ghost{background:#fff;color:var(--teal-deep);border:1px solid var(--line);box-shadow:none}
+
+/* ---------- 舞台：页面切换动画 ---------- */
+.stage{position:relative;flex:1;overflow:hidden;border-radius:22px;
+  background:rgba(255,255,255,.60);border:1px solid var(--line);box-shadow:var(--shadow)}
+.view{position:absolute;inset:0;padding:28px 34px;overflow:auto;
+  opacity:0;transform:translateY(16px) scale(.99);pointer-events:none;
+  transition:opacity .45s var(--ease), transform .5s var(--ease)}
+.view.enter{opacity:1;transform:none;pointer-events:auto}
+.view.leave{opacity:0;transform:translateY(-14px) scale(.995)}
+h1{font-size:30px;margin:0 0 6px;letter-spacing:.5px}
+.sub{color:var(--muted);margin:0 0 26px;font-size:14px}
+.lead{font-size:17px;line-height:1.7;max-width:860px;color:#47605a}
+
+/* KPI 与卡片 */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:24px 0}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:18px;
+  padding:18px 20px;box-shadow:0 8px 22px rgba(80,120,110,.06);
+  transition:transform .3s var(--ease)}
+.kpi:hover{transform:translateY(-4px)}
+.kpi .label{font-size:12px;color:var(--muted);margin-bottom:8px}
+.kpi .num{font-size:30px;font-weight:800;color:var(--teal-deep);font-variant-numeric:tabular-nums}
+.kpi .num::after{content:attr(data-unit);font-size:13px;margin-left:4px;color:var(--muted);font-weight:500}
+
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;
+  cursor:pointer;transition:all .32s var(--ease);position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+  background:linear-gradient(var(--teal),var(--mint));opacity:0;transition:opacity .3s}
+.card:hover{transform:translateY(-5px);box-shadow:var(--shadow)}
+.card:hover::before{opacity:1}
+.card h3{margin:0 0 8px;font-size:16px}
+.card p{margin:0;font-size:13px;color:var(--muted);line-height:1.6}
+.card .tag{position:absolute;right:16px;top:18px;font-size:11px;color:var(--teal-deep);
+  background:#e7f1ec;padding:3px 9px;border-radius:99px}
+
+/* 分栏：图表 + 状态 */
+.cols{display:grid;grid-template-columns:1.5fr 1fr;gap:18px;height:calc(100% - 90px)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px}
+.panel h3{margin:0 0 10px;font-size:15px}
+.chart{width:100%;height:min(42vh,360px)}
+.iframe-wrap{width:100%;height:calc(100% - 8px);border:0;border-radius:14px;background:#fbfdfc}
+.check{list-style:none;margin:12px 0 0;padding:0}
+.check li{display:flex;gap:10px;align-items:center;padding:8px 2px;font-size:13px;color:#47605a}
+.check li::before{content:"✓";width:18px;height:18px;border-radius:50%;background:#e2efe9;
+  color:var(--teal-deep);display:grid;place-items:center;font-size:11px;flex:none}
+.warn{color:var(--muted);font-size:12px;margin-top:12px}
+footer{margin-top:14px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>充电桩应用管理平台<small>NEUSOFT · 第4组 DEMO</small></div>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-v="overview" class="active">概览</button>
+      <button data-v="board">实时大屏</button>
+      <button data-v="forecast">负荷预测</button>
+      <button data-v="check">需求闭环</button>
+    </nav>
+    <div class="top-right">
+      <span class="badge" id="srcBadge">离线演示数据</span>
+      <button class="btn ghost" id="btnAuto">自动轮播 · 开</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <section class="view enter" id="view-overview">
+      <h1>一个开箱即用的充电桩运营闭环</h1>
+      <p class="lead">用户端 → 服务器端 → 数据库 → Web 大屏 → 负荷预测 → 自动计费与自愈，五位成员模块已全部落地。</p>
+      <div class="kpis">
+        <div class="kpi"><div class="label">演示电站</div><div class="num" id="kStation" data-unit="座">5</div></div>
+        <div class="kpi"><div class="label">充电桩</div><div class="num" id="kPiles" data-unit="根">37</div></div>
+        <div class="kpi"><div class="label">充电订单</div><div class="num" id="kOrders" data-unit="笔">128</div></div>
+        <div class="kpi"><div class="label">自动化测试</div><div class="num" id="kTests" data-unit="项">132</div></div>
+      </div>
+      <div class="grid" id="moduleGrid">
+        <div class="card" data-jump="board"><span class="tag">实时</span><h3>运营大屏</h3><p>营收 / 桩态 / 负荷 / 预测，10 秒自动刷新</p></div>
+        <div class="card" data-jump="forecast"><span class="tag">算法</span><h3>负荷预测</h3><p>OLS + WMA 时序预测，未来 6 小时负荷曲线</p></div>
+        <div class="card" data-jump="board"><span class="tag">自动化</span><h3>价格策略</h3><p>预测空闲率 &gt;60% 自动 8 折，闲时特惠</p></div>
+        <div class="card" data-jump="board"><span class="tag">自愈</span><h3>异常自愈</h3><p>连续 3 次低功率自动重启，全程无人介入</p></div>
+        <div class="card" data-jump="check"><span class="tag">通信</span><h3>Socket 会话</h3><p>9999 协议 + 8890 数据 API + 心跳重连</p></div>
+        <div class="card" data-jump="check"><span class="tag">闭环</span><h3>手机号登录</h3><p>用户端登录/自动注册，昵称余额实时同步</p></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-board">
+      <h1>实时运营大屏</h1>
+      <p class="sub">左侧为服务器 8890 实时数据渲染；点击“新窗口打开”获得完整大屏。</p>
+      <div class="cols">
+        <div class="panel" style="padding:10px">
+          <iframe class="iframe-wrap" id="dashFrame" src="index.html"></iframe>
+        </div>
+        <div class="panel">
+          <h3>当前链路</h3>
+          <ul class="check">
+            <li>SQLite 演示库：北京 5 站 / 37 桩 / 128 订单</li>
+            <li>Socket 服务：9999（心跳/电站/订单上报/登录）</li>
+            <li>HTTP 聚合：8890（KPI/图表/预测接口）</li>
+            <li>价格策略 / 自愈检查 / 负荷预测 自动运行</li>
+          </ul>
+          <button class="btn" style="margin-top:14px" onclick="window.open('index.html','_blank')">新窗口打开大屏</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-forecast">
+      <h1>负荷预测 · 创新点联动</h1>
+      <p class="sub">基于历史功率聚合的 OLS 预测曲线（蓝 = 历史，绿虚线 = 未来 6h 预测）。</p>
+      <div class="cols">
+        <div class="panel"><div class="chart" id="chartForecast"></div></div>
+        <div class="panel">
+          <h3>预测驱动的业务动作</h3>
+          <ul class="check">
+            <li>预测空闲率 &gt; 60% → 自动“闲时特惠”8 折</li>
+            <li>未来 6h 峰值预警，提前调度</li>
+            <li>样本不足自动回退确定性日曲线</li>
+          </ul>
+          <p class="warn" id="forecastSrc">当前为演示数据曲线</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-check">
+      <h1>需求矩阵 · 23 项闭环</h1>
+      <p class="sub">▲ 必修模块与创新点全部落地，main 保持可编译可运行。</p>
+      <div class="grid" id="reqGrid"></div>
+    </section>
+  </main>
+  <footer>东软电动汽车充电桩应用管理平台 · 第 4 组 · 数据均为演示口径，机制真实</footer>
+</div>
+
+<script src="vendor/echarts.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const views=["overview","board","forecast","check"];
+let current="overview", autoTimer=null;
+
+function switchView(name){
+  if(name===current) return;
+  const old=$("#view-"+current), neu=$("#view-"+name);
+  old.classList.add("leave");
+  setTimeout(()=>{ old.classList.remove("enter","leave"); }, 420);
+  requestAnimationFrame(()=>{
+    neu.classList.remove("leave");
+    neu.classList.add("enter");
+  });
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("active",b.dataset.v===name));
+  current=name;
+  if(name==="forecast") drawForecast();
+}
+document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>switchView(b.dataset.v));
+document.querySelectorAll(".card[data-jump]").forEach(c=>c.onclick=()=>switchView(c.dataset.jump));
+
+$("#btnAuto").onclick=function(){
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; this.textContent="自动轮播 · 开"; }
+  else { autoTimer=setInterval(()=>{ const i=views.indexOf(current); switchView(views[(i+1)%views.length]); }, 5200); this.textContent="自动轮播 · 关"; }
+};
+
+/* 概览计数 */
+function countUp(el,to,ms=900){ const t0=performance.now();
+  (function step(t){ const p=Math.min(1,(t-t0)/ms);
+    el.textContent=Math.round(to*(1-Math.pow(1-p,3)));
+    if(p<1) requestAnimationFrame(step); })(t0); }
+countUp($("#kStation"),5);countUp($("#kPiles"),37);
+countUp($("#kOrders"),128);countUp($("#kTests"),132);
+
+/* 需求闭环清单 */
+const reqs=[["▲ 附近电站查询","北京 5 站 · 服务器列表 + 特惠徽标"],["▲ 一键导航","静态地图 + 驾车路线"],["▲ 用户维护","手机号登录 / 自动注册"],
+  ["▲ 电动汽车充电","订单结算上报闭环"],["▲ 管理员登录","后台鉴权"],["▲ 销售业绩","QChart 营收折线"],
+  ["▲ 电桩状态","在用/闲置/故障"],["▲ 充电桩管理","远程重启"],["▲ 充电站管理","列表/明细/新增"],
+  ["▲ 用户管理","冻结/解冻/搜索"],["数据库设计","8 张表 + 契约测试"],["数据安全","协议信封/权限"],
+  ["▲ 负荷预测","OLS/WMA + 6h 预测"],["Web 大屏","动态数据闭环"],["界面 QSS","深色工控主题"],
+  ["Socket 通信","会话层 + 心跳重连"],["错误处理","统一组件"],["测试交付","132 项自动化"],
+  ["创新点 · 动态计费","预测驱动 8 折"],["创新点 · 自愈","异常自动重启"]];
+$("#reqGrid").innerHTML=reqs.map(r=>`<div class="card"><h3>${r[0]}</h3><p>${r[1]}</p></div>`).join("");
+
+/* 预测小图（演示数据） */
+const hist=[42,46,44,58,72,88,94,90,76,64,58,62];
+const pred=[62,70,78,84,86,82];
+function drawForecast(){
+  if(!window.echarts||!$("#chartForecast"))return;
+  const c=echarts.init($("#chartForecast"));
+  const cats=hist.map((_,i)=>i-11)+pred.map((_,i)=>i+1);
+  c.setOption({backgroundColor:"transparent",
+    tooltip:{trigger:"axis"},
+    legend:{data:["历史实测","未来预测"],textStyle:{color:"#6b8b83"},top:0},
+    grid:{left:40,right:18,top:34,bottom:28},
+    xAxis:{type:"category",data:cats.map(x=>x<=0?x+"h":"+"+x+"h"),axisLine:{lineStyle:{color:"#bcd0c8"}}},
+    yAxis:{type:"value",name:"kW",nameTextStyle:{color:"#8aa59c"},splitLine:{lineStyle:{color:"#e5efe9"}}},
+    series:[
+      {name:"历史实测",type:"line",smooth:true,symbol:"none",lineStyle:{width:2.5,color:"#4e8f86"},data:hist,areaStyle:{color:"rgba(111,157,146,.12)"}},
+      {name:"未来预测",type:"line",smooth:true,symbol:"none",connectNulls:true,
+       lineStyle:{width:2.5,color:"#7fb69b",type:"dashed"},
+       data:Array(hist.length).fill(null).concat(pred)}
+    ]});
+}
+window.addEventListener("resize",()=>{if(window.echarts&&$("#chartForecast")._echarts_instance_)echarts.getInstanceByDom($("#chartForecast")).resize();});
+
+/* 动态数据源（8890 在线时覆盖 KPI 与来源徽标） */
+fetch("http://127.0.0.1:8890/api/dashboard/overview").then(r=>r.json()).then(d=>{
+  if(d&&d.code===0&&d.data){
+    const x=d.data; const m=()=>Math.round;
+    if(x.station_total!=null)countUp($("#kStation"),x.station_total);
+    if(x.pile_total!=null)countUp($("#kPiles"),x.pile_total);
+    if(x.order_total!=null)countUp($("#kOrders"),x.order_total);
+    $("#srcBadge").textContent="已连接 8890 · 实时数据";
+    $("#srcBadge").style.background="#d9ebe3";
+  }
+}).catch(()=>{ /* 保留离线演示数据 */ });
+</script>
+</body>
+</html>
