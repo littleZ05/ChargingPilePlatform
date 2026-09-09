@@ -515,13 +515,14 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         if (error) *error = QStringLiteral("数据库未打开");
         return false;
     }
-    return runInTransaction([&](QSqlDatabase &db) {
+    QString innerErr;
+    bool ok = runInTransaction([&](QSqlDatabase &db) {
         QSqlQuery q(db);
         // 1) 定位电桩
         q.prepare(QStringLiteral("SELECT id, station_id, state FROM piles WHERE code = ?"));
         q.addBindValue(pileCode);
         if (!q.exec() || !q.next()) {
-            if (error) *error = QStringLiteral("电桩编码不存在：%1").arg(pileCode);
+            innerErr = QStringLiteral("电桩编码不存在：%1").arg(pileCode);
             return false;
         }
         const int pileId    = q.value(0).toInt();
@@ -535,11 +536,9 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
             "ORDER BY id DESC LIMIT 1"));
         orderQ.addBindValue(pileId);
         if (!orderQ.exec() || !orderQ.next()) {
-            if (error) {
-                *error = pileState == static_cast<int>(cp::PileState::Charging)
-                             ? QStringLiteral("电桩处于充电中但缺少对应订单，请先建单")
-                             : QStringLiteral("该桩当前无充电中订单，无法结算上报");
-            }
+            innerErr = pileState == static_cast<int>(cp::PileState::Charging)
+                           ? QStringLiteral("电桩处于充电中但缺少对应订单，请先建单")
+                           : QStringLiteral("该桩当前无充电中订单，无法结算上报");
             return false;
         }
         const int orderId = orderQ.value(0).toInt();
@@ -556,7 +555,7 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         up.addBindValue(amount);
         up.addBindValue(orderId);
         if (!up.exec()) {
-            if (error) *error = QStringLiteral("订单完成失败：%1").arg(up.lastError().text());
+            innerErr = QStringLiteral("订单完成失败：%1").arg(up.lastError().text());
             return false;
         }
 
@@ -566,7 +565,7 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         bal.addBindValue(amount);
         bal.addBindValue(userId);
         if (!bal.exec()) {
-            if (error) *error = QStringLiteral("余额扣减失败：%1").arg(bal.lastError().text());
+            innerErr = QStringLiteral("余额扣减失败：%1").arg(bal.lastError().text());
             return false;
         }
         QSqlQuery balQ(db);
@@ -589,16 +588,22 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         pile.addBindValue(orderId);
         pile.addBindValue(pileId);
         if (!pile.exec()) {
-            if (error) *error = QStringLiteral("电桩状态更新失败：%1").arg(pile.lastError().text());
+            innerErr = QStringLiteral("电桩状态更新失败：%1").arg(pile.lastError().text());
             return false;
         }
 
         if (orderIdOut)  *orderIdOut  = orderId;
         if (balanceOut)  *balanceOut  = newBalance;
-        if (!refreshOnlineRate(stationId, error))
+        if (!refreshOnlineRate(stationId, &innerErr))
             return false;
         return true;
-    }, error);
+    }, &innerErr);
+    if (!ok) {
+        if (error)
+            *error = innerErr.isEmpty() ? QStringLiteral("结算失败") : innerErr;
+        return false;
+    }
+    return true;
 }
 
 bool StationStore::refreshOnlineRate(int stationId, QString *error)
