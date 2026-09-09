@@ -1317,9 +1317,9 @@ private:
             double basePrice;
         };
         const QVector<StationSeed> stationSeeds = {
-            { QStringLiteral("东软软件园A站"), QStringLiteral("沈阳市浑南区软件园路1号"), 123.43, 41.75, 1.20 },
-            { QStringLiteral("大学城快充站"), QStringLiteral("沈阳市浑南区学城街88号"), 123.44, 41.77, 1.08 },
-            { QStringLiteral("园区慢充站"), QStringLiteral("沈阳市和平区创新路18号"), 123.40, 41.79, 0.98 }
+            { QStringLiteral("中关村软件园A站"), QStringLiteral("北京市海淀区东北旺西路8号"), 116.30, 40.05, 1.20 },
+            { QStringLiteral("望京SOHO快充站"), QStringLiteral("北京市朝阳区望京街10号"), 116.48, 40.00, 1.08 },
+            { QStringLiteral("上地园区慢充站"), QStringLiteral("北京市海淀区上地十街10号"), 116.30, 40.05, 0.98 }
         };
 
         QVector<StationRow> stationRows = stations(error);

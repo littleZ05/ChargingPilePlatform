@@ -41,14 +41,14 @@ struct Order {
 };
 
 /** 用户当前定位（演示用，后续接入设备 GPS / 腾讯定位） */
-inline constexpr double kUserLat = 41.766;
-inline constexpr double kUserLng = 123.420;
+inline constexpr double kUserLat = 39.990;
+inline constexpr double kUserLng = 116.380;
 
 /** 当前定位状态（初始为演示坐标；「首页」搜索经腾讯地理编码可更新为真实地址坐标） */
 struct UserLocation {
     double  lat   = kUserLat;
     double  lng   = kUserLng;
-    QString label = QStringLiteral("沈阳市");
+    QString label = QStringLiteral("北京市");
 };
 inline UserLocation gUserLocation;
 
@@ -79,11 +79,11 @@ inline QVector<Station> mockStations()
         double lat, lng, price, online;
         int total, idle;
     } raw[] = {
-        { QStringLiteral("东软集团充电站"), QStringLiteral("浑南区新秀街2号"), QStringLiteral("快充"),     QStringLiteral("DS"), 41.762, 123.442, 1.00, 92.0, 12,  8 },
-        { QStringLiteral("奥体中心充电站"), QStringLiteral("浑南区营盘北街"),   QStringLiteral("快充"),     QStringLiteral("AT"), 41.745, 123.435, 1.10, 88.0, 16, 11 },
-        { QStringLiteral("三好街充电站"),   QStringLiteral("和平区三好街"),     QStringLiteral("慢充"),     QStringLiteral("SJ"), 41.770, 123.400, 0.95, 75.0,  8,  2 },
-        { QStringLiteral("沈阳北站充电站"), QStringLiteral("沈河区北站路"),     QStringLiteral("快充"),     QStringLiteral("SY"), 41.820, 123.438, 1.20, 95.0, 20, 11 },
-        { QStringLiteral("中街充电站"),     QStringLiteral("沈河区中街路"),     QStringLiteral("快慢兼有"), QStringLiteral("ZJ"), 41.800, 123.462, 1.05, 90.0, 10,  7 },
+        { QStringLiteral("中关村软件园充电站"), QStringLiteral("海淀区东北旺西路8号"), QStringLiteral("快充"), QStringLiteral("ZG"), 40.047, 116.297, 1.00, 92.0, 12,  8 },
+        { QStringLiteral("五道口充电站"), QStringLiteral("海淀区成府路28号"), QStringLiteral("快充"), QStringLiteral("WD"), 39.992, 116.338, 1.10, 88.0, 16, 11 },
+        { QStringLiteral("望京SOHO充电站"), QStringLiteral("朝阳区望京街10号"), QStringLiteral("快充"), QStringLiteral("WJ"), 39.996, 116.481, 1.10, 88.0, 16, 11 },
+        { QStringLiteral("国贸CBD充电站"), QStringLiteral("朝阳区建国门外大街1号"), QStringLiteral("慢充"), QStringLiteral("GM"), 39.908, 116.461, 0.95, 75.0,  8,  2 },
+        { QStringLiteral("上地信息产业基地站"), QStringLiteral("海淀区上地十街10号"), QStringLiteral("快慢兼有"), QStringLiteral("SD"), 40.050, 116.304, 1.05, 90.0, 10,  7 },
     };
 
     QVector<Station> list;

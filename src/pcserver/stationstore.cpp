@@ -335,12 +335,12 @@ bool StationStore::seedDemoIfEmpty(QString *error)
         int pileCount;
     };
     const QVector<DemoStation> demos = {
-        { QStringLiteral("东软软件园充电站"), QStringLiteral("沈阳市浑南区智慧二街 100 号"),
-          123.495840, 41.715170, 10 },
-        { QStringLiteral("沈阳奥体中心充电站"), QStringLiteral("沈阳市浑南区浑南中路 30 号"),
-          123.472100, 41.728300, 12 },
-        { QStringLiteral("中街大悦城充电站"), QStringLiteral("沈阳市大东区小东路 10 号"),
-          123.465300, 41.799300, 6 },
+        { QStringLiteral("中关村软件园充电站"), QStringLiteral("北京市海淀区东北旺西路8号"),
+          116.297000, 40.047000, 10 },
+        { QStringLiteral("望京SOHO充电站"), QStringLiteral("北京市朝阳区望京街10号"),
+          116.481000, 39.996000, 12 },
+        { QStringLiteral("国贸CBD充电站"), QStringLiteral("北京市朝阳区建国门外大街1号"),
+          116.461000, 39.908000, 6 },
     };
 
     for (const DemoStation &d : demos) {

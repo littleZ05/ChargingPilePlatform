@@ -24,12 +24,12 @@ AddStationDialog::AddStationDialog(QWidget *parent)
 
     m_nameEdit = new QLineEdit(this);
     m_nameEdit->setObjectName(QStringLiteral("stationNameEdit"));
-    m_nameEdit->setPlaceholderText(QStringLiteral("如：浑南科技园充电站"));
+    m_nameEdit->setPlaceholderText(QStringLiteral("如：中关村软件园充电站"));
     formLayout->addRow(QStringLiteral("站名 *"), m_nameEdit);
 
     m_addressEdit = new QLineEdit(this);
     m_addressEdit->setObjectName(QStringLiteral("stationAddressEdit"));
-    m_addressEdit->setPlaceholderText(QStringLiteral("如：沈阳市浑南区智慧三街 88 号"));
+    m_addressEdit->setPlaceholderText(QStringLiteral("如：北京市海淀区东北旺西路 88 号"));
     formLayout->addRow(QStringLiteral("地址 *"), m_addressEdit);
 
     m_longitudeSpin = new QDoubleSpinBox(this);

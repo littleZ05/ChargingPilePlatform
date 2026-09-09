@@ -161,8 +161,8 @@ Body 允许为空对象 `{}`；服务器仍回成功 ACK。
   "stations": [
     {
       "id": 1,
-      "name": "东软软件园充电站",
-      "address": "沈阳市浑南区智慧二街100号",
+      "name": "中关村软件园充电站",
+      "address": "北京市海淀区东北旺西路8号",
       "longitude": 123.4958,
       "latitude": 41.7152,
       "total_piles": 8,
