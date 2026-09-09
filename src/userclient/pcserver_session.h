@@ -80,6 +80,9 @@ public:
     bool reportOrder(const QString &orderNo, const QString &pileCode,
                      double kwh, double amount);
 
+    /** 发送 kLoginRequest：手机号免密登录，未注册由服务端自动注册 */
+    bool login(const QString &phone);
+
     /** 以下计数供界面状态展示与自动化测试使用 */
     int heartbeatSentCount() const    { return m_heartbeatSentCount; }
     int pongAckCount() const          { return m_pongAckCount; }
@@ -96,6 +99,9 @@ signals:
     void orderReportResult(int code, const QString &message,
                            const QString &orderNo, const QString &pileCode,
                            bool received, bool pileFreed);
+    /** kLoginRequest 应答：code=0 成功；created=true 表示新用户自动注册 */
+    void loginResult(int code, const QString &message, const QString &phone,
+                     const QString &nickname, double balance, bool created);
 
 private slots:
     void onConnected();
@@ -112,6 +118,7 @@ private:
     void handleHeartbeatPacket(const QByteArray &body);
     void handleStationQueryPacket(const QByteArray &body);
     void handleOrderReportPacket(const QByteArray &body);
+    void handleUserLoginPacket(const QByteArray &body);
     void notifyQueryFailed(const QString &reason);
     void notifyOrderFailed(const QString &reason);
 
@@ -137,6 +144,7 @@ private:
 
     bool m_stationQueryPending = false;
     bool m_orderReportPending = false;
+    bool m_loginPending = false;
     int  m_heartbeatSentCount = 0;
     int  m_pongAckCount = 0;
     int  m_reconnectAttemptCount = 0;
