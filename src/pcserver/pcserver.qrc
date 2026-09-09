@@ -1,5 +1,10 @@
 <RCC>
     <qresource prefix="/">
         <file alias="database/schema.sql">../database/schema.sql</file>
+        <file alias="styles/theme.qss">styles/dark_theme.qss</file>
+        <file alias="styles/icons/arrow_down.png">styles/icons/arrow_down.png</file>
+        <file alias="styles/icons/arrow_down_hover.png">styles/icons/arrow_down_hover.png</file>
+        <file alias="styles/icons/arrow_up.png">styles/icons/arrow_up.png</file>
+        <file alias="styles/icons/arrow_up_hover.png">styles/icons/arrow_up_hover.png</file>
     </qresource>
 </RCC>

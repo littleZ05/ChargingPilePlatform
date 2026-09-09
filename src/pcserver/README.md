@@ -61,6 +61,27 @@
 - `src/pcserver/tests/loadforecastdata_tests.pro`：数据源策略 + 算法联调；
 - `src/pcserver/tests/stationui_tests.pro`：新增页签曲线 / 文案 UI 断言。
 
+## 已实现：NO.18 界面设计（Qt 布局 / QSS，吴羽桐）
+
+1. **全局深色工控主题**：深蓝灰高对比扁平风格，语义色板统一为
+   主强调 `#1890FF` / 成功 `#52C41A` / 告警 `#FAAD14` /
+   故障危险 `#FF4D4F`，文字与边框规范集中在
+   `styles/dark_theme.qss`。
+2. **资源化挂载**：QSS 以 `:/styles/theme.qss` 编译进 qrc，
+   启动时由 `uitheme::applyUiTheme`（Fusion + 深色 QPalette + QSS）
+   统一注入；`main.cpp` 在登录框之前调用，`MainWindow` 构造函数
+   兜底调用；资源缺失时打印警告并安全回退系统默认样式。
+3. **组件美化层级**：按钮 primary/danger/success/warning 角色、
+   胶囊页签、表格隔行交替 + hover/选中高亮、输入框圆角聚焦、
+   细扁平滚动条、分组框/卡片/页眉/状态栏/菜单栏均被覆盖；
+   下拉与微调箭头使用随 qrc 内嵌的位图，避免原生箭头丢失。
+4. **图表隔离**：QSS 不触碰 QChartView/QGraphicsView 宿主；
+   图表的深色背景与浅色文字通过 Qt Charts 原生 API 配置。
+
+测试：
+- `tst_stationui` 新增主题资源注入断言与全页签切换用例；
+- 主工程无头冒烟：`QT_QPA_PLATFORM=offscreen PCSERVER_AUTOLOGIN=1 ./PcServer`
+  应输出“暗色工控主题已加载”且无崩溃。
 ## 已实现：NO.16 Web 大屏数据动态注入（吴羽桐）
 
 1. **平台级聚合**（`StationStore::dashboardSnapshot`，全部只读参数化 SQL）：
@@ -91,6 +112,8 @@ src/pcserver/
 ├── main.cpp              # 入口：打开 SQLite + 演示数据种子
 ├── mainwindow.*          # 主窗口：站列表 + 桩明细双区布局、3s 实时刷新
 ├── addstationdialog.*    # 新增电站对话框（校验/取值）
+├── uitheme.*             # NO.18 主题注入（Fusion + 深色 QPalette + QSS）
+├── styles/dark_theme.qss # NO.18 全局深色工控主题（含内嵌箭头位图）
 ├── stationstore.*        # 数据访问层：schema/列表/桩明细/新增/状态/在线率 + NO.17 负荷采样
 ├── ../common/loadforecast.*  # NO.17 轻量时序预测引擎（OLS/WMA，纯 QtCore）
 ├── pcserver.qrc          # 内置 ../database/schema.sql

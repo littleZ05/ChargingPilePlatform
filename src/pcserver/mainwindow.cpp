@@ -67,6 +67,7 @@
 #include "loadforecast.h"
 #include "net_server.h"
 #include "stationstore.h"
+#include "uitheme.h"
 
 namespace {
 
@@ -179,17 +180,55 @@ QString escapeLikePattern(const QString &input)
     return escaped;
 }
 
-QColor stateColor(int state)
+/** NO.18 状态语义色：闲置=成功绿 / 充电中=主蓝 / 故障=危险红（与全局主题色板一致） */
+QColor pileStateColor(int state)
 {
     switch (state) {
     case 0:
-        return QColor(QStringLiteral("#edf7ed"));
+        return QColor(QStringLiteral("#52C41A"));
     case 1:
-        return QColor(QStringLiteral("#eef4ff"));
+        return QColor(QStringLiteral("#1890FF"));
     case 2:
-        return QColor(QStringLiteral("#fff0f0"));
+        return QColor(QStringLiteral("#FF4D4F"));
     default:
-        return QColor(QStringLiteral("#f4f4f5"));
+        return QColor(QStringLiteral("#8FA0B2"));
+    }
+}
+
+/** 订单状态语义色：进行中=主蓝 / 已完成=成功绿 / 已取消=中性灰 */
+QColor orderStateColor(int state)
+{
+    switch (state) {
+    case 0:
+        return QColor(QStringLiteral("#1890FF"));
+    case 1:
+        return QColor(QStringLiteral("#52C41A"));
+    case 2:
+        return QColor(QStringLiteral("#8FA0B2"));
+    default:
+        return QColor(QStringLiteral("#8FA0B2"));
+    }
+}
+
+/** 在线率语义色：健康=绿 / 波动=蓝 / 偏低=告警 / 全离线=红 */
+QColor onlineRateColor(double rate)
+{
+    if (rate >= 90.0) {
+        return QColor(QStringLiteral("#52C41A"));
+    }
+    if (rate >= 50.0) {
+        return QColor(QStringLiteral("#1890FF"));
+    }
+    if (rate > 0.0) {
+        return QColor(QStringLiteral("#FAAD14"));
+    }
+    return QColor(QStringLiteral("#FF4D4F"));
+}
+
+void tintStatusItem(QTableWidgetItem *item, const QColor &color)
+{
+    if (item) {
+        item->setForeground(QBrush(color));
     }
 }
 
@@ -253,16 +292,13 @@ void clearLayout(QLayout *layout)
     }
 }
 
-QFrame *createMetricCard(const QString &title, QLabel **valueLabel)
+QFrame *createMetricCard(const QString &title, QLabel **valueLabel,
+                         const QString &metricTone = QString())
 {
     auto *card = new QFrame;
     card->setFrameShape(QFrame::StyledPanel);
     card->setObjectName(QStringLiteral("metricCard"));
     card->setMinimumHeight(76);
-    card->setStyleSheet(QStringLiteral(
-        "#metricCard { background: #f8fafc; border: 1px solid #dbe3ea; border-radius: 6px; }"
-        "#metricTitle { color: #667085; font-size: 12px; }"
-        "#metricValue { color: #111827; font-size: 22px; font-weight: 600; }"));
 
     auto *layout = new QVBoxLayout(card);
     layout->setContentsMargins(12, 10, 12, 10);
@@ -274,6 +310,9 @@ QFrame *createMetricCard(const QString &title, QLabel **valueLabel)
     auto *value = new QLabel(QStringLiteral("--"), card);
     value->setObjectName(QStringLiteral("metricValue"));
     value->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    if (!metricTone.isEmpty()) {
+        value->setProperty("metricTone", metricTone);
+    }
 
     layout->addWidget(titleLabel);
     layout->addWidget(value);
@@ -292,16 +331,6 @@ QTableWidgetItem *makeItem(const QString &text, const QVariant &userData = QVari
         item->setData(Qt::UserRole, userData);
     }
     return item;
-}
-
-void setRowTint(QTableWidget *table, int row, int state)
-{
-    const QBrush brush(stateColor(state));
-    for (int col = 0; col < table->columnCount(); ++col) {
-        if (auto *item = table->item(row, col)) {
-            item->setBackground(brush);
-        }
-    }
 }
 
 int rowId(const QTableWidget *table, int row)
@@ -406,6 +435,10 @@ void fillUserTable(QTableWidget *table, const QVector<UserRow> &rows)
         table->setItem(row, 3, makeItem(moneyText(user.balance)));
         table->setItem(row, 4, makeItem(user.gmtCreate));
         table->setItem(row, 5, makeItem(userStatusText(user.status), user.status));
+        tintStatusItem(table->item(row, 5),
+                       user.status == 1
+                           ? QColor(QStringLiteral("#FAAD14"))   // 冻结=告警
+                           : QColor(QStringLiteral("#52C41A"))); // 正常=成功
     }
 }
 
@@ -424,7 +457,7 @@ void fillPileTable(QTableWidget *table, const QVector<PileRow> &rows)
         table->setItem(row, 5, makeItem(pileStateText(item.state), item.state));
         table->setItem(row, 6, makeItem(QString::number(item.chargeCount)));
         table->setItem(row, 7, makeItem(durationText(item.chargeSeconds)));
-        setRowTint(table, row, item.state);
+        tintStatusItem(table->item(row, 5), pileStateColor(item.state));
     }
 }
 
@@ -445,7 +478,7 @@ void fillOrdersTable(QTableWidget *table, const QVector<OrderRow> &rows)
         table->setItem(row, 7, makeItem(moneyText(item.price)));
         table->setItem(row, 8, makeItem(moneyText(item.amount)));
         table->setItem(row, 9, makeItem(orderStateText(item.state)));
-        setRowTint(table, row, item.state);
+        tintStatusItem(table->item(row, 9), orderStateColor(item.state));
     }
 }
 
@@ -467,16 +500,41 @@ void fillStationCombo(QComboBox *combo, const QVector<StationRow> &stations)
     }
 }
 
+/** NO.18：QChart 走原生 API 配深色底/浅色文字，避免 QSS 触碰 QChartView 宿主 */
+void setChartTheme(QChart *chart)
+{
+    if (!chart) {
+        return;
+    }
+    chart->setBackgroundBrush(QBrush(QColor(QStringLiteral("#111A26"))));
+    chart->setBackgroundRoundness(8.0);
+    chart->setTitleBrush(QBrush(QColor(QStringLiteral("#E6EDF3"))));
+    if (chart->legend()) {
+        chart->legend()->setLabelBrush(QBrush(QColor(QStringLiteral("#C7D2DE"))));
+    }
+}
+
+void setChartAxisTheme(QAbstractAxis *axis)
+{
+    if (!axis) {
+        return;
+    }
+    axis->setLabelsColor(QColor(QStringLiteral("#9FB0C2")));
+    axis->setTitleBrush(QBrush(QColor(QStringLiteral("#B6C2CF"))));
+    axis->setGridLineColor(QColor(QStringLiteral("#263244")));
+}
+
 void fillRevenueChart(QChartView *view, const QVector<RevenuePoint> &points, int days)
 {
     auto *chart = new QChart;
     chart->setTitle(QStringLiteral("近%1天营收趋势").arg(days));
     chart->legend()->hide();
+    setChartTheme(chart);
 
     auto *series = new QLineSeries(chart);
     series->setName(QStringLiteral("营收"));
     series->setPointsVisible(true);
-    QPen pen(QColor(QStringLiteral("#2563eb")));
+    QPen pen(QColor(QStringLiteral("#1890FF")));
     pen.setWidthF(2.5);
     series->setPen(pen);
 
@@ -492,12 +550,14 @@ void fillRevenueChart(QChartView *view, const QVector<RevenuePoint> &points, int
     }
     axisX->setLabelsPosition(QCategoryAxis::AxisLabelsPositionOnValue);
     axisX->setRange(0, std::max(0, static_cast<int>(points.size()) - 1));
+    setChartAxisTheme(axisX);
 
     auto *axisY = new QValueAxis(chart);
     axisY->setTitleText(QStringLiteral("元"));
     axisY->setLabelFormat(QStringLiteral("%.0f"));
     axisY->setRange(0.0, std::max(100.0, maxValue * 1.25));
     axisY->setTickCount(6);
+    setChartAxisTheme(axisY);
 
     chart->addSeries(series);
     chart->addAxis(axisX, Qt::AlignBottom);
@@ -532,16 +592,17 @@ void fillLoadForecastChart(QChartView *view,
     chart->setMargins(QMargins(8, 4, 8, 4));
     chart->legend()->setVisible(true);
     chart->legend()->setAlignment(Qt::AlignBottom);
+    setChartTheme(chart);
 
     auto *historySeries = new QLineSeries(chart);
     historySeries->setName(QStringLiteral("历史实测负荷"));
-    QPen historyPen(QColor(QStringLiteral("#2563eb")));
+    QPen historyPen(QColor(QStringLiteral("#1890FF")));
     historyPen.setWidthF(2.5);
     historySeries->setPen(historyPen);
 
     auto *forecastSeries = new QLineSeries(chart);
     forecastSeries->setName(QStringLiteral("未来预测负荷"));
-    QPen forecastPen(QColor(QStringLiteral("#f59e0b")));
+    QPen forecastPen(QColor(QStringLiteral("#FAAD14")));
     forecastPen.setWidthF(3.0);
     forecastPen.setStyle(Qt::DashLine);
     forecastSeries->setPen(forecastPen);
@@ -549,7 +610,7 @@ void fillLoadForecastChart(QChartView *view,
 
     auto *nowSeries = new QLineSeries(chart);
     nowSeries->setName(QStringLiteral("当前时刻"));
-    QPen nowPen(QColor(QStringLiteral("#94a3b8")));
+    QPen nowPen(QColor(QStringLiteral("#64748B")));
     nowPen.setWidthF(1.5);
     nowPen.setStyle(Qt::DashLine);
     nowSeries->setPen(nowPen);
@@ -583,12 +644,14 @@ void fillLoadForecastChart(QChartView *view,
     axisX->setTickCount(std::min(
         8, 4 + (n + static_cast<int>(result.forecastKw.size())) / 5));
     axisX->setGridLineVisible(true);
+    setChartAxisTheme(axisX);
 
     auto *axisY = new QValueAxis(chart);
     axisY->setTitleText(QStringLiteral("负荷 (kW)"));
     axisY->setRange(0.0, yMax);
     axisY->setTickCount(6);
     axisY->setLabelFormat(QStringLiteral("%.0f"));
+    setChartAxisTheme(axisY);
 
     chart->addAxis(axisX, Qt::AlignBottom);
     chart->addAxis(axisY, Qt::AlignLeft);
@@ -1695,6 +1758,10 @@ MainWindow::MainWindow(pcserver::StationStore *store, const QString &adminName, 
     : QMainWindow(parent)
     , d(new Private)
 {
+    // NO.18：主窗口入口亦统一注入内置主题（独立运行/单元测试场景同样生效，
+    // 资源缺失时内部安全兜底，不影响初始化）
+    pcserver::applyUiTheme(qApp);
+
     d->store = store;
     d->adminName = adminName;
     d->ui = new Ui::MainWindow;
@@ -1743,8 +1810,7 @@ void MainWindow::buildUi()
 
     auto *header = new QFrame(d->ui->centralwidget);
     header->setFrameShape(QFrame::StyledPanel);
-    header->setStyleSheet(QStringLiteral(
-        "QFrame { background: #ffffff; border: 1px solid #dbe3ea; border-radius: 6px; }"));
+    header->setObjectName(QStringLiteral("appHeader"));
     auto *headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(14, 10, 14, 10);
     headerLayout->setSpacing(10);
@@ -1757,6 +1823,7 @@ void MainWindow::buildUi()
 
     d->adminLabel = new QLabel(QStringLiteral("当前管理员：%1").arg(d->adminName), header);
     auto *logoutButton = new QPushButton(QStringLiteral("退出登录"), header);
+    logoutButton->setProperty("role", QStringLiteral("danger"));
 
     headerLayout->addWidget(title);
     headerLayout->addStretch(1);
@@ -1771,6 +1838,7 @@ void MainWindow::buildUi()
     });
 
     d->tabs = new QTabWidget(d->ui->centralwidget);
+    d->tabs->setObjectName(QStringLiteral("mainTabs"));
     rootLayout->addWidget(header);
     rootLayout->addWidget(d->tabs, 1);
 
@@ -1861,9 +1929,6 @@ void MainWindow::buildUi()
     d->forecastStatusLabel = new QLabel(forecastPage);
     d->forecastStatusLabel->setObjectName(QStringLiteral("forecastStatusLabel"));
     d->forecastStatusLabel->setWordWrap(true);
-    d->forecastStatusLabel->setStyleSheet(QStringLiteral(
-        "color: #475569; background: #f8fafc; border: 1px solid #dbe3ea; "
-        "border-radius: 6px; padding: 8px 12px;"));
 
     forecastLayout->addLayout(forecastToolbar);
     forecastLayout->addWidget(d->forecastChartView, 1);
@@ -1891,9 +1956,18 @@ void MainWindow::buildUi()
     statusCards->setHorizontalSpacing(10);
     statusCards->setVerticalSpacing(10);
     statusCards->addWidget(createMetricCard(QStringLiteral("电桩总数"), &d->statusTotalValue), 0, 0);
-    statusCards->addWidget(createMetricCard(QStringLiteral("闲置"), &d->statusIdleValue), 0, 1);
-    statusCards->addWidget(createMetricCard(QStringLiteral("充电中"), &d->statusChargingValue), 0, 2);
-    statusCards->addWidget(createMetricCard(QStringLiteral("故障"), &d->statusFaultValue), 0, 3);
+    statusCards->addWidget(createMetricCard(QStringLiteral("闲置"),
+                                            &d->statusIdleValue,
+                                            QStringLiteral("ok")),
+                           0, 1);
+    statusCards->addWidget(createMetricCard(QStringLiteral("充电中"),
+                                            &d->statusChargingValue,
+                                            QStringLiteral("info")),
+                           0, 2);
+    statusCards->addWidget(createMetricCard(QStringLiteral("故障"),
+                                            &d->statusFaultValue,
+                                            QStringLiteral("danger")),
+                           0, 3);
 
     auto *statusToolbar = new QHBoxLayout;
     d->statusFilterCombo = new QComboBox(statusPage);
@@ -1914,6 +1988,9 @@ void MainWindow::buildUi()
     d->statusSetIdleButton = new QPushButton(QStringLiteral("设为闲置"), statusPage);
     d->statusSetChargingButton = new QPushButton(QStringLiteral("设为充电中"), statusPage);
     d->statusSetFaultButton = new QPushButton(QStringLiteral("设为故障"), statusPage);
+    d->statusSetIdleButton->setProperty("role", QStringLiteral("success"));
+    d->statusSetChargingButton->setProperty("role", QStringLiteral("primary"));
+    d->statusSetFaultButton->setProperty("role", QStringLiteral("danger"));
     statusButtons->addWidget(d->statusSetIdleButton);
     statusButtons->addWidget(d->statusSetChargingButton);
     statusButtons->addWidget(d->statusSetFaultButton);
@@ -1932,8 +2009,7 @@ void MainWindow::buildUi()
 
     auto *manageFormPanel = new QFrame(managePage);
     manageFormPanel->setFrameShape(QFrame::StyledPanel);
-    manageFormPanel->setStyleSheet(QStringLiteral(
-        "QFrame { background: #ffffff; border: 1px solid #dbe3ea; border-radius: 6px; }"));
+    manageFormPanel->setObjectName(QStringLiteral("manageFormPanel"));
     auto *manageFormLayout = new QVBoxLayout(manageFormPanel);
     manageFormLayout->setContentsMargins(14, 14, 14, 14);
     manageFormLayout->setSpacing(10);
@@ -1974,6 +2050,9 @@ void MainWindow::buildUi()
     d->manageRestartButton = new QPushButton(QStringLiteral("远程重启"), manageFormPanel);
     d->manageClearButton = new QPushButton(QStringLiteral("清空"), manageFormPanel);
     auto *manageRefreshButton = new QPushButton(QStringLiteral("刷新"), manageFormPanel);
+    d->manageAddButton->setProperty("role", QStringLiteral("primary"));
+    d->manageDeleteButton->setProperty("role", QStringLiteral("danger"));
+    d->manageRestartButton->setProperty("role", QStringLiteral("warning"));
     manageButtons->addWidget(d->manageAddButton, 0, 0);
     manageButtons->addWidget(d->manageUpdateButton, 0, 1);
     manageButtons->addWidget(d->manageDeleteButton, 1, 0);
@@ -2415,6 +2494,7 @@ void MainWindow::setupStationPage()
     d->stationAddButton = new QPushButton(QStringLiteral("新增电站"), stationGroup);
     d->stationRefreshButton->setObjectName(QStringLiteral("refreshStationsButton"));
     d->stationAddButton->setObjectName(QStringLiteral("addStationButton"));
+    d->stationAddButton->setProperty("role", QStringLiteral("primary"));
     toolbar->addWidget(d->stationRefreshButton);
     toolbar->addWidget(d->stationAddButton);
     toolbar->addStretch(1);
@@ -2509,6 +2589,7 @@ void MainWindow::setupUserPage()
     d->userSearchButton->setObjectName(QStringLiteral("userSearchButton"));
     d->userRefreshButton = new QPushButton(QStringLiteral("刷新"), page);
     d->userRefreshButton->setObjectName(QStringLiteral("userRefreshButton"));
+    d->userSearchButton->setProperty("role", QStringLiteral("primary"));
     toolbar->addWidget(d->userSearchEdit);
     toolbar->addWidget(d->userSearchButton);
     toolbar->addWidget(d->userRefreshButton);
@@ -2525,6 +2606,8 @@ void MainWindow::setupUserPage()
     d->userFreezeButton->setObjectName(QStringLiteral("userFreezeButton"));
     d->userUnfreezeButton = new QPushButton(QStringLiteral("解冻账号"), page);
     d->userUnfreezeButton->setObjectName(QStringLiteral("userUnfreezeButton"));
+    d->userFreezeButton->setProperty("role", QStringLiteral("warning"));
+    d->userUnfreezeButton->setProperty("role", QStringLiteral("success"));
     actionRow->addWidget(d->userFreezeButton);
     actionRow->addWidget(d->userUnfreezeButton);
     actionRow->addStretch(1);
@@ -2688,9 +2771,12 @@ void MainWindow::fillStationTable(const QVector<pcserver::StationInfo> &stations
         d->stationTable->setItem(row, 3, new QTableWidgetItem(QString::number(station.longitude, 'f', 6)));
         d->stationTable->setItem(row, 4, new QTableWidgetItem(QString::number(station.latitude, 'f', 6)));
         d->stationTable->setItem(row, 5, new QTableWidgetItem(QString::number(station.totalPiles)));
-        d->stationTable->setItem(
-            row, 6, new QTableWidgetItem(QStringLiteral("%1%").arg(
-                                             QString::number(station.onlineRate, 'f', 1))));
+        auto *onlineRateItem =
+            new QTableWidgetItem(QStringLiteral("%1%").arg(
+                QString::number(station.onlineRate, 'f', 1)));
+        onlineRateItem->setTextAlignment(Qt::AlignCenter);
+        tintStatusItem(onlineRateItem, onlineRateColor(station.onlineRate));
+        d->stationTable->setItem(row, 6, onlineRateItem);
     }
 }
 
@@ -2721,6 +2807,8 @@ void MainWindow::refreshPileDetail()
         d->stationPileTable->setItem(row, 3, new QTableWidgetItem(QString::number(pile.powerKw, 'f', 1)));
         d->stationPileTable->setItem(
             row, 4, new QTableWidgetItem(pcserver::StationStore::pileStateText(pile.state)));
+        tintStatusItem(d->stationPileTable->item(row, 4),
+                       pileStateColor(static_cast<int>(pile.state)));
         d->stationPileTable->setItem(row, 5, new QTableWidgetItem(QString::number(pile.chargeCount)));
         d->stationPileTable->setItem(row, 6, new QTableWidgetItem(QString::number(pile.chargeSeconds)));
     }

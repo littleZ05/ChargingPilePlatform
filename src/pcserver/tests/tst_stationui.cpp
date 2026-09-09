@@ -3,17 +3,21 @@
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
 
+#include <QApplication>
 #include <QComboBox>
+#include <QFile>
 #include <QLabel>
 #include <QLineEdit>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QStringList>
+#include <QTabWidget>
 #include <QTableWidget>
 
 #include "../addstationdialog.h"
 #include "../mainwindow.h"
 #include "../stationstore.h"
+#include "../uitheme.h"
 #include "test_dbpath.h"
 
 using namespace pcserver;
@@ -23,6 +27,9 @@ class TstStationUi : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
+    void themeResourceLoadsAndAppliesGlobal();
+    void allTabsSwitchWithoutCrash();
     void stationListHeadersMatchRequirement();
     void stationListShowsSeededRows();
     void stationListRefreshesAfterStoreInsert();
@@ -33,6 +40,56 @@ private slots:
     void realtimeSimulationTickChangesPileState();
     void forecastTabRendersHistoryAndForecastSeries();
 };
+
+void TstStationUi::initTestCase()
+{
+    QString error;
+    QVERIFY2(pcserver::applyUiTheme(qApp, &error), qPrintable(error));
+}
+
+void TstStationUi::themeResourceLoadsAndAppliesGlobal()
+{
+    QVERIFY2(QFile::exists(QStringLiteral(":/styles/theme.qss")),
+             "样式资源必须随 qrc 编译进可执行文件");
+    QVERIFY(!qApp->styleSheet().isEmpty());
+    QVERIFY(qApp->styleSheet().contains(QStringLiteral("QFrame#metricCard")));
+    QVERIFY(qApp->styleSheet().contains(
+        QStringLiteral("QPushButton[role=\"danger\"]")));
+    QVERIFY(qApp->styleSheet().contains(
+        QStringLiteral("QTableView::item:selected")));
+    QVERIFY(qApp->styleSheet().contains(
+        QStringLiteral("QScrollBar::handle:vertical")));
+}
+
+void TstStationUi::allTabsSwitchWithoutCrash()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui-tabs.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    MainWindow window(&store);
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainTabs"));
+    QVERIFY(tabs);
+    QCOMPARE(tabs->count(), 6);
+
+    for (int i = 0; i < tabs->count(); ++i) {
+        QVERIFY(tabs->widget(i));
+        tabs->setCurrentIndex(i);
+        QCoreApplication::processEvents();
+        QWidget *page = tabs->widget(i);
+        if (i == 1) {
+            // 负荷预测页：核心是 QChartView
+            QVERIFY2(page->findChild<QChartView *>(),
+                     "负荷预测页缺少 QChartView");
+        } else {
+            QVERIFY2(page->findChild<QTableWidget *>(),
+                     qPrintable(QStringLiteral("页签 %1 缺少数据表格").arg(i)));
+        }
+    }
+}
 
 void TstStationUi::stationListHeadersMatchRequirement()
 {
