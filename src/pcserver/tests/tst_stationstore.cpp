@@ -54,6 +54,7 @@ private slots:
     void integrityCheckAndBackup();
     void preparedStatementPreventsSqlInjection();
     void settleChargingOrderCompletesAndDeducts();
+    void userLoginAutoRegistersAndReturnsExisting();
 };
 
 void TstStationStore::schemaCreatesContractTables()
@@ -473,6 +474,32 @@ void TstStationStore::settleChargingOrderCompletesAndDeducts()
     QVERIFY(!store.settleChargingOrderByCode(
                 QStringLiteral("T-P01"), 1.0, 1.0, nullptr, nullptr, &error));
     QVERIFY2(error.contains(QStringLiteral("无充电中订单")), qPrintable(error));
+}
+
+void TstStationStore::userLoginAutoRegistersAndReturnsExisting()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("login.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+
+    int userId = 0; QString nickname; double balance = -1; int status = -1;
+    bool created = false;
+    QVERIFY2(store.userLoginByPhone(QStringLiteral("13900009999"), &userId,
+                                    &nickname, &balance, &status, &created, &error),
+             qPrintable(error));
+    QVERIFY(created);
+    QCOMPARE(nickname, QStringLiteral("用户9999"));
+    QCOMPARE(balance, 0.0);
+    QCOMPARE(status, 0);
+    const int firstId = userId;
+
+    created = false;
+    QVERIFY(store.userLoginByPhone(QStringLiteral("13900009999"), &userId,
+                                   &nickname, &balance, &status, &created, &error));
+    QVERIFY(!created);
+    QCOMPARE(userId, firstId);
 }
 
 QTEST_MAIN(TstStationStore)

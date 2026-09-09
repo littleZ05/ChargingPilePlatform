@@ -1012,6 +1012,68 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
     return true;
 }
 
+bool StationStore::userLoginByPhone(const QString &phone, int *userIdOut,
+                                    QString *nicknameOut, double *balanceOut,
+                                    int *statusOut, bool *createdOut,
+                                    QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+    bool created = false;
+    int userId = 0;
+    double balance = 0.0;
+    int status = 0;
+    QString nickname;
+
+    bool ok = runInTransaction([&](QSqlDatabase &db) {
+        QSqlQuery q(db);
+        q.prepare(QStringLiteral(
+            "SELECT id,nickname,balance,status FROM users WHERE phone=?"));
+        q.addBindValue(phone);
+        if (!q.exec()) {
+            if (error) *error = QStringLiteral("查询用户失败：%1")
+                                       .arg(q.lastError().text());
+            return false;
+        }
+        if (!q.next()) {
+            // 未注册：按说明书自动注册（昵称=用户+手机号后4位）
+            created = true;
+            nickname = QStringLiteral("用户%1").arg(phone.right(4));
+            QSqlQuery ins(db);
+            ins.prepare(QStringLiteral(
+                "INSERT INTO users(phone,nickname,balance,status) VALUES(?,?,0,0)"));
+            ins.addBindValue(phone);
+            ins.addBindValue(nickname);
+            if (!ins.exec()) {
+                if (error) *error = QStringLiteral("自动注册失败：%1")
+                                           .arg(ins.lastError().text());
+                return false;
+            }
+            userId = ins.lastInsertId().toInt();
+            balance = 0.0;
+            status = 0;
+        } else {
+            created = false;
+            userId  = q.value(0).toInt();
+            nickname = q.value(1).toString();
+            balance  = q.value(2).toDouble();
+            status   = q.value(3).toInt();
+        }
+        return true;
+    }, error);
+
+    if (!ok)
+        return false;
+    if (createdOut) *createdOut = created;
+    if (userIdOut)  *userIdOut  = userId;
+    if (nicknameOut)*nicknameOut = nickname;
+    if (balanceOut) *balanceOut  = balance;
+    if (statusOut)  *statusOut   = status;
+    return true;
+}
+
 bool StationStore::refreshOnlineRate(int stationId, QString *error)
 {
     QSqlQuery countQuery(m_db);

@@ -185,6 +185,20 @@ bool PcServerSession::reportOrder(const QString &orderNo, const QString &pileCod
     return true;
 }
 
+bool PcServerSession::login(const QString &phone)
+{
+    if (!m_running || !m_connected || m_loginPending)
+        return false;
+    QJsonObject body;
+    body.insert(QStringLiteral("phone"), phone);
+    const auto msgType = static_cast<quint16>(cp::MsgType::kLoginRequest);
+    const QByteArray payload = QJsonDocument(body).toJson(QJsonDocument::Compact);
+    if (!m_netClient->sendPacket(msgType, payload))
+        return false;
+    m_loginPending = true;
+    return true;
+}
+
 void PcServerSession::connectNow()
 {
     if (!m_running)
@@ -293,10 +307,32 @@ void PcServerSession::onPacketReceived(quint16 msgType, const QByteArray &body)
     case static_cast<quint16>(cp::MsgType::kOrderReport):
         handleOrderReportPacket(body);
         break;
+    case static_cast<quint16>(cp::MsgType::kLoginRequest):
+        handleUserLoginPacket(body);
+        break;
     default:
         qWarning() << "[userclient][net] 收到未注册 MsgType:" << msgType;
         break;
     }
+}
+
+void PcServerSession::handleUserLoginPacket(const QByteArray &body)
+{
+    if (!m_loginPending) {
+        qWarning() << "[userclient][net] 收到非预期的 kLoginRequest 应答";
+        return;
+    }
+    m_loginPending = false;
+    const QJsonObject obj = QJsonDocument::fromJson(body).object();
+    const int code = obj.value(QStringLiteral("code")).toInt(-1);
+    const QString message =
+        obj.value(QStringLiteral("message")).toString(
+            obj.value(QStringLiteral("msg")).toString());
+    const QString phone = obj.value(QStringLiteral("phone")).toString();
+    const QString nickname = obj.value(QStringLiteral("nickname")).toString();
+    const double balance = obj.value(QStringLiteral("balance")).toDouble();
+    const bool created = obj.value(QStringLiteral("created")).toBool(false);
+    emit loginResult(code, message, phone, nickname, balance, created);
 }
 
 void PcServerSession::sendHeartbeat()

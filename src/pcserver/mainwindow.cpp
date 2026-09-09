@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include <algorithm>
+
 #include <QtCharts/QCategoryAxis>
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
@@ -2844,6 +2846,9 @@ void MainWindow::handleSocketPacket(QTcpSocket *client, quint16 msgType,
     case static_cast<quint16>(cp::MsgType::kOrderReport):
         handleOrderReportPacket(client, body);
         break;
+    case static_cast<quint16>(cp::MsgType::kLoginRequest):
+        handleUserLoginPacket(client, body);
+        break;
     default:
         qWarning() << "[net] 收到未注册 MsgType:" << msgType;
         break;
@@ -2870,6 +2875,59 @@ void MainWindow::handleHeartbeatPacket(QTcpSocket *client, const QByteArray &bod
     }
     sendSocketReply(client, static_cast<quint16>(cp::MsgType::kHeartbeat),
                     response);
+}
+
+void MainWindow::handleUserLoginPacket(QTcpSocket *client,
+                                       const QByteArray &body)
+{
+    const auto msgType = static_cast<quint16>(cp::MsgType::kLoginRequest);
+    QJsonObject request;
+    if (!parseSocketJsonObject(body, &request)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("登录负载必须是 JSON 对象")));
+        return;
+    }
+    const QString phone =
+        request.value(QStringLiteral("phone")).toString().trimmed();
+    if (phone.size() != 11 || !std::all_of(phone.begin(), phone.end(),
+                                           [](QChar c) { return c.isDigit(); })) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("手机号应为11位数字")));
+        return;
+    }
+    if (!d->store || !d->store->isOpen()) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            503, QStringLiteral("用户服务未就绪")));
+        return;
+    }
+    int userId = 0, status = 0;
+    double balance = 0.0;
+    QString nickname;
+    bool created = false;
+    QString err;
+    if (!d->store->userLoginByPhone(phone, &userId, &nickname, &balance,
+                                    &status, &created, &err)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            500, err.isEmpty() ? QStringLiteral("登录失败") : err));
+        return;
+    }
+    QJsonObject response = socketResponseEnvelope(
+        0, created ? QStringLiteral("新用户已自动注册并登录")
+                   : QStringLiteral("登录成功"));
+    response.insert(QStringLiteral("user_id"), userId);
+    response.insert(QStringLiteral("phone"), phone);
+    response.insert(QStringLiteral("nickname"), nickname);
+    response.insert(QStringLiteral("balance"), balance);
+    response.insert(QStringLiteral("status"), status);
+    response.insert(QStringLiteral("created"), created);
+    sendSocketReply(client, msgType, response);
+    qInfo().noquote()
+        << QStringLiteral("[net][登录] phone=%1 user=%2 created=%3")
+               .arg(phone).arg(nickname).arg(created);
 }
 
 void MainWindow::handleStationQueryPacket(QTcpSocket *client,

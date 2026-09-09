@@ -48,6 +48,7 @@ private:
     void handleHeartbeatPacket(QTcpSocket *client, const QByteArray &body);
     void handleStationQueryPacket(QTcpSocket *client, const QByteArray &body);
     void handleOrderReportPacket(QTcpSocket *client, const QByteArray &body);
+    void handleUserLoginPacket(QTcpSocket *client, const QByteArray &body);
     void refreshSales();
     void refreshPileStatus();
     void refreshPileManagement();

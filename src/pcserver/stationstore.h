@@ -176,6 +176,15 @@ public:
                                    double *balanceOut = nullptr,
                                    QString *error = nullptr);
 
+    /**
+     * 用户手机号登录（NO.6）：已注册返回既有用户；未注册自动创建
+     * （昵称=用户+手机号后4位，余额0，状态正常）并标记 created。
+     */
+    bool userLoginByPhone(const QString &phone, int *userIdOut,
+                          QString *nicknameOut, double *balanceOut,
+                          int *statusOut, bool *createdOut,
+                          QString *error = nullptr);
+
     /** 输入校验：与新增电站共用一套规则，避免界面/数据层校验不一致 */
     static bool validateInput(const QString &name,
                               const QString &address,
