@@ -13,6 +13,7 @@ SOURCES += \
     $$PWD/../addstationdialog.cpp \
     $$PWD/../mainwindow.cpp \
     $$PWD/../stationstore.cpp \
+    $$PWD/../uitheme.cpp \
     $$PWD/../../common/net_server.cpp \
     $$PWD/../../common/packet_assembler.cpp \
     $$PWD/../../common/loadforecast.cpp
@@ -21,6 +22,7 @@ HEADERS += \
     $$PWD/../addstationdialog.h \
     $$PWD/../mainwindow.h \
     $$PWD/../stationstore.h \
+    $$PWD/../uitheme.h \
     $$PWD/../../common/net_server.h \
     $$PWD/../../common/packet_assembler.h \
     $$PWD/../../common/loadforecast.h

@@ -63,13 +63,12 @@ AddStationDialog::AddStationDialog(QWidget *parent)
                        "（快慢充混合，初始含闲置/充电中/故障状态）。"),
         this);
     hintLabel->setWordWrap(true);
-    hintLabel->setStyleSheet(QStringLiteral("color: #666;"));
+    hintLabel->setObjectName(QStringLiteral("addStationHintLabel"));
     rootLayout->addWidget(hintLabel);
 
     m_errorLabel = new QLabel(this);
     m_errorLabel->setObjectName(QStringLiteral("addStationErrorLabel"));
     m_errorLabel->setWordWrap(true);
-    m_errorLabel->setStyleSheet(QStringLiteral("color: #c0392b;"));
     rootLayout->addWidget(m_errorLabel);
 
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

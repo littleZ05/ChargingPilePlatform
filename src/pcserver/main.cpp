@@ -11,6 +11,7 @@
 #include "pricingservice.h"
 #include "selfhealservice.h"
 #include "loadforecast.h"
+#include "uitheme.h"
 
 int main(int argc, char *argv[])
 {
@@ -18,6 +19,9 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("ChargingPilePlatform"));
     QCoreApplication::setApplicationName(QStringLiteral("PcServer"));
     QCoreApplication::setApplicationVersion(QStringLiteral("1.0"));
+
+    // NO.18：应用启动即注入内置深色主题（登录框与主窗口一致；失败自动兜底）
+    pcserver::applyUiTheme(&app);
 
     const QString dbPath =
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("chargingpile.db"));
