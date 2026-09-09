@@ -100,6 +100,16 @@ public:
     /** 更新电桩状态并同步刷新所属电站的当前在线率（写入 stations.online_rate） */
     bool setPileState(int pileId, cp::PileState state, QString *error = nullptr);
 
+    /**
+     * 结算上报（联调闭环）：完成该桩“充电中”订单并落库。
+     * 事务内：订单 state 0->1、写 end_time/kwh/amount、扣减用户余额、
+     *         更新桩状态为闲置并累加充电次数/时长；成功后刷新电站在线率。
+     */
+    bool settleChargingOrderByCode(const QString &pileCode, double kwh, double amount,
+                                   int *orderIdOut = nullptr,
+                                   double *balanceOut = nullptr,
+                                   QString *error = nullptr);
+
     /** 输入校验：与新增电站共用一套规则，避免界面/数据层校验不一致 */
     static bool validateInput(const QString &name,
                               const QString &address,

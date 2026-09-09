@@ -507,6 +507,100 @@ bool StationStore::setPileState(int pileId, cp::PileState state, QString *error)
     return refreshOnlineRate(stationId, error);
 }
 
+bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh,
+                                             double amount, int *orderIdOut,
+                                             double *balanceOut, QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+    return runInTransaction([&](QSqlDatabase &db) {
+        QSqlQuery q(db);
+        // 1) 定位电桩
+        q.prepare(QStringLiteral("SELECT id, station_id, state FROM piles WHERE code = ?"));
+        q.addBindValue(pileCode);
+        if (!q.exec() || !q.next()) {
+            if (error) *error = QStringLiteral("电桩编码不存在：%1").arg(pileCode);
+            return false;
+        }
+        const int pileId    = q.value(0).toInt();
+        const int stationId = q.value(1).toInt();
+        const int pileState = q.value(2).toInt();
+
+        // 2) 找到“充电中”订单；桩为充电中但无订单视为脏数据，拒绝结算
+        QSqlQuery orderQ(db);
+        orderQ.prepare(QStringLiteral(
+            "SELECT id, user_id FROM orders WHERE pile_id = ? AND state = 0 "
+            "ORDER BY id DESC LIMIT 1"));
+        orderQ.addBindValue(pileId);
+        if (!orderQ.exec() || !orderQ.next()) {
+            if (error) {
+                *error = pileState == static_cast<int>(cp::PileState::Charging)
+                             ? QStringLiteral("电桩处于充电中但缺少对应订单，请先建单")
+                             : QStringLiteral("该桩当前无充电中订单，无法结算上报");
+            }
+            return false;
+        }
+        const int orderId = orderQ.value(0).toInt();
+        const int userId  = orderQ.value(1).toInt();
+
+        // 3) 完成订单并落库
+        const double price = kwh > 0.0 ? amount / kwh : 0.0;
+        QSqlQuery up(db);
+        up.prepare(QStringLiteral(
+            "UPDATE orders SET state = 1, end_time = datetime('now','localtime'), "
+            " kwh = ?, price = ?, amount = ? WHERE id = ?"));
+        up.addBindValue(kwh);
+        up.addBindValue(price);
+        up.addBindValue(amount);
+        up.addBindValue(orderId);
+        if (!up.exec()) {
+            if (error) *error = QStringLiteral("订单完成失败：%1").arg(up.lastError().text());
+            return false;
+        }
+
+        // 4) 扣减用户余额并取最新余额
+        QSqlQuery bal(db);
+        bal.prepare(QStringLiteral("UPDATE users SET balance = balance - ? WHERE id = ?"));
+        bal.addBindValue(amount);
+        bal.addBindValue(userId);
+        if (!bal.exec()) {
+            if (error) *error = QStringLiteral("余额扣减失败：%1").arg(bal.lastError().text());
+            return false;
+        }
+        QSqlQuery balQ(db);
+        balQ.prepare(QStringLiteral("SELECT balance FROM users WHERE id = ?"));
+        balQ.addBindValue(userId);
+        balQ.exec();
+        double newBalance = 0.0;
+        if (balQ.next())
+            newBalance = balQ.value(0).toDouble();
+
+        // 5) 释放电桩并累计次数/时长
+        QSqlQuery pile(db);
+        pile.prepare(QStringLiteral(
+            "UPDATE piles SET state = 0, charge_count = charge_count + 1, "
+            " charge_seconds = charge_seconds + CAST("
+            "   (julianday('now','localtime') - "
+            "    (SELECT julianday(start_time) FROM orders WHERE id = ?)) * 3600 "
+            "   AS INTEGER) "
+            "WHERE id = ?"));
+        pile.addBindValue(orderId);
+        pile.addBindValue(pileId);
+        if (!pile.exec()) {
+            if (error) *error = QStringLiteral("电桩状态更新失败：%1").arg(pile.lastError().text());
+            return false;
+        }
+
+        if (orderIdOut)  *orderIdOut  = orderId;
+        if (balanceOut)  *balanceOut  = newBalance;
+        if (!refreshOnlineRate(stationId, error))
+            return false;
+        return true;
+    }, error);
+}
+
 bool StationStore::refreshOnlineRate(int stationId, QString *error)
 {
     QSqlQuery countQuery(m_db);

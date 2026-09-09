@@ -2701,29 +2701,31 @@ void MainWindow::handleOrderReportPacket(QTcpSocket *client,
         return;
     }
 
-    bool freed = false;
-    if (pile.state == cp::PileState::Charging) {
-        QString error;
-        if (!d->store->setPileState(pile.id, cp::PileState::Idle, &error)) {
-            sendError(500, error.isEmpty() ? QStringLiteral("电桩状态更新失败")
-                                           : error);
-            return;
-        }
-        freed = true;
-        refreshStations(); // 桩状态变更后同步刷新界面
+    // 联调闭环：完成该桩“充电中”订单并落库（写订单/扣余额/更新桩累计）
+    int orderId = 0;
+    double balance = 0.0;
+    QString settleError;
+    if (!d->store->settleChargingOrderByCode(pileCode, kwh, amount,
+                                             &orderId, &balance, &settleError)) {
+        sendError(409, settleError.isEmpty()
+                           ? QStringLiteral("结算失败")
+                           : settleError);
+        return;
     }
+    refreshStations();
 
     QJsonObject response = socketResponseEnvelope(
-        0, freed ? QStringLiteral("订单已受理，电桩已释放")
-                 : QStringLiteral("订单已受理（电桩当前已闲置）"));
+        0, QStringLiteral("订单已受理并完成结算"));
     response.insert(QStringLiteral("order_no"), orderNo);
     response.insert(QStringLiteral("pile_code"), pileCode);
     response.insert(QStringLiteral("pile_id"), pile.id);
     response.insert(QStringLiteral("station_id"), pile.stationId);
+    response.insert(QStringLiteral("order_id"), orderId);
     response.insert(QStringLiteral("kwh"), kwh);
     response.insert(QStringLiteral("amount"), amount);
+    response.insert(QStringLiteral("balance"), balance);
     response.insert(QStringLiteral("received"), true);
-    response.insert(QStringLiteral("pile_freed"), freed);
+    response.insert(QStringLiteral("pile_freed"), true);
     sendSocketReply(client, msgType, response);
 
     qInfo().noquote()
