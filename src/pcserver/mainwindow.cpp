@@ -63,6 +63,7 @@
 
 #include "addstationdialog.h"
 #include "common.h"
+#include "dashboard_api.h"
 #include "loadforecast.h"
 #include "net_server.h"
 #include "stationstore.h"
@@ -1679,6 +1680,8 @@ struct MainWindow::Private
     pcserver::StationStore *store = nullptr;
     cp::NetServer *netServer = nullptr;   // 持有：Socket 服务端（构造时创建，析构时回收）
     bool socketStarted = false;
+    pcserver::DashboardApiServer *dashboardServer = nullptr; // 持有：大屏 HTTP 数据服务
+    bool dashboardStarted = false;
 
     QTabWidget *tabs = nullptr;
     QLabel *adminLabel = nullptr;
@@ -1765,13 +1768,19 @@ MainWindow::MainWindow(pcserver::StationStore *store, const QString &adminName, 
     d->ui->setupUi(this);
     buildUi();
     startSocketServer();
+    startDashboardServer();
     refreshAll();
     statusBar()->showMessage(
         QStringLiteral("登录成功：%1%2")
             .arg(adminName,
-                 d->socketStarted
-                     ? QStringLiteral("，Socket 服务已监听端口 %1").arg(cp::kServerPort)
-                     : QStringLiteral("，Socket 服务启动失败（端口 %1）").arg(cp::kServerPort)),
+                 QStringLiteral("；Socket 端口 %1%2")
+                     .arg(cp::kServerPort)
+                     .arg(d->socketStarted ? QStringLiteral(" 已监听")
+                                           : QStringLiteral(" 启动失败")))
+            + (d->dashboardStarted
+                   ? QStringLiteral("；大屏数据 http://127.0.0.1:%1")
+                         .arg(d->dashboardServer->port())
+                   : QStringLiteral("；大屏数据服务未启动")),
         6000);
 }
 
@@ -1781,6 +1790,11 @@ MainWindow::~MainWindow()
         d->netServer->stopServer();
         delete d->netServer; // 已从本窗口子对象链移除，避免析构重复释放
         d->netServer = nullptr;
+    }
+    if (d->dashboardServer) {
+        d->dashboardServer->stop();
+        delete d->dashboardServer;
+        d->dashboardServer = nullptr;
     }
     delete d->ui;
     delete d;
@@ -2872,6 +2886,25 @@ void MainWindow::startSocketServer()
         qWarning().noquote()
             << QStringLiteral("[net] Socket 服务监听端口 %1 失败").arg(port);
     }
+}
+
+void MainWindow::startDashboardServer()
+{
+    if (!d->store || !d->store->isOpen())
+        return;
+
+    d->dashboardServer = new pcserver::DashboardApiServer(d->store, this);
+    QString error;
+    if (!d->dashboardServer->start(0, &error)) {
+        qWarning().noquote()
+            << QStringLiteral("[dashboard] 大屏数据服务启动失败：%1").arg(error);
+        return;
+    }
+    d->dashboardStarted = true;
+    qInfo().noquote()
+        << QStringLiteral(
+               "[dashboard] 大屏数据服务已监听 http://127.0.0.1:%1/api/dashboard/overview")
+               .arg(d->dashboardServer->port());
 }
 
 void MainWindow::sendSocketReply(QTcpSocket *client, quint16 msgType,

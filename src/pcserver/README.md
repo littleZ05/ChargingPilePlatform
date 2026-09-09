@@ -82,6 +82,19 @@
 - `tst_stationui` 新增主题资源注入断言与全页签切换用例；
 - 主工程无头冒烟：`QT_QPA_PLATFORM=offscreen PCSERVER_AUTOLOGIN=1 ./PcServer`
   应输出“暗色工控主题已加载”且无崩溃。
+## 已实现：NO.16 Web 大屏数据动态注入（吴羽桐）
+
+1. **平台级聚合**（`StationStore::dashboardSnapshot`，全部只读参数化 SQL）：
+   桩状态总量/在线率/实时总负荷、今日与近 7 日已完成订单营收/订单数/电量、
+   近 24h 平台负荷（真实功率日志聚合优先，样本不足回退确定性仿真曲线并置
+   `loadUsedDemoFallback`）、复用 NO.17 `cp::forecastLoad` 产出未来 6h 预测；
+2. **只读 HTTP/JSON 服务**（`DashboardApiServer`，仅监听 127.0.0.1）：
+   `GET /api/dashboard/overview`（大屏全量数据，envelope：`{code,message,ts,data}`）
+   与 `GET /api/dashboard/health`；响应带 CORS 头，供以 `file://` 打开的
+   `src/webdashboard/index.html` 跨源轮询；默认端口 8890，
+   可用环境变量 `PCSERVER_DASH_PORT` 覆盖；
+3. **前端**：`index.html` 暴露 `window.updateDashboardData(data)` 标准入口，
+   每 10s 拉取刷新 6 张 KPI + 3 张图；PcServer 未启动时自动保留离线演示数据并在页脚标注。
 
 ## Socket 业务接入（NO.19 → 业务层）
 
@@ -137,6 +150,10 @@ qmake6 <仓库>/src/common/tests/loadforecast_tests.pro && make && ./tst_loadfor
 # NO.17 数据源策略 + 算法联调测试
 mkdir -p /tmp/load-forecast-data-test && cd /tmp/load-forecast-data-test
 qmake6 <仓库>/src/pcserver/tests/loadforecastdata_tests.pro && make && ./tst_loadforecastdata
+
+# NO.16 大屏聚合 + HTTP/JSON 服务测试（需本机回环网络）
+mkdir -p /tmp/dashboard-api-test && cd /tmp/dashboard-api-test
+qmake6 <仓库>/src/pcserver/tests/dashboardapi_tests.pro && make && ./tst_dashboardapi
 
 # Socket 业务协议测试（心跳/电站查询/订单上报）
 mkdir -p /tmp/socket-biz-test && cd /tmp/socket-biz-test

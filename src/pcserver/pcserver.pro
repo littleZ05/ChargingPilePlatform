@@ -11,6 +11,7 @@ INCLUDEPATH += $$PWD/../common
 
 SOURCES += \
     addstationdialog.cpp \
+    dashboard_api.cpp \
     main.cpp \
     mainwindow.cpp \
     stationstore.cpp \
@@ -23,6 +24,7 @@ SOURCES += \
 
 HEADERS += \
     addstationdialog.h \
+    dashboard_api.h \
     mainwindow.h \
     stationstore.h \
     pricingservice.h \

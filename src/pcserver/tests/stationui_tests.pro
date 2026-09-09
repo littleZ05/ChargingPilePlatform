@@ -11,6 +11,7 @@ INCLUDEPATH += $$PWD/.. $$PWD/../../common
 SOURCES += \
     $$PWD/tst_stationui.cpp \
     $$PWD/../addstationdialog.cpp \
+    $$PWD/../dashboard_api.cpp \
     $$PWD/../mainwindow.cpp \
     $$PWD/../stationstore.cpp \
     $$PWD/../uitheme.cpp \
@@ -20,6 +21,7 @@ SOURCES += \
 
 HEADERS += \
     $$PWD/../addstationdialog.h \
+    $$PWD/../dashboard_api.h \
     $$PWD/../mainwindow.h \
     $$PWD/../stationstore.h \
     $$PWD/../uitheme.h \

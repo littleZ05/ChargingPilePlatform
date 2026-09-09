@@ -43,6 +43,37 @@ struct PileInfo
     qint64       chargeSeconds = 0;
 };
 
+/** NO.16 Web 大屏平台级数据快照（只读聚合，真实优先 + 仿真兜底） */
+struct DashboardSnapshot
+{
+    int    totalPiles = 0;
+    int    idlePiles = 0;
+    int    chargingPiles = 0;
+    int    faultPiles = 0;
+    double onlineRate = 0.0;        // 0~100（保留 1 位小数）
+    double totalCapacityKw = 0.0;   // 全平台额定容量 = Σ piles.power_kw
+    double currentLoadKw = 0.0;     // 实时总负荷 = Σ 充电中桩 power_kw
+
+    double todayRevenueYuan = 0.0;  // 今日已完成订单营收
+    int    todayOrders = 0;         // 今日已完成订单数
+    double todayEnergyKwh = 0.0;    // 今日已完成订单电量
+    QVector<double> revenue7d;      // 近 7 日营收（旧→新）
+    QVector<int>    order7d;        // 近 7 日订单数（旧→新）
+
+    QVector<double> load24hKw;      // 近 24h 平台负荷采样（旧→新，末位=当前小时）
+    bool   loadUsedDemoFallback = false; // 采样不足时是否走确定性仿真曲线
+
+    bool    forecastOk = false;
+    QString forecastError;          // forecastOk=false 时的中文原因
+    QVector<double> forecastKw;     // 未来 1..horizon 小时
+    int     forecastHorizon = 0;
+    QString forecastModelName;      // 实际采用的模型中文名
+    QString forecastTrendText;      // 上升 / 下降 / 平稳
+    double  forecastPeakKw = 0.0;
+    int     forecastPeakHour = 0;   // 峰值出现在未来第几小时（1..horizon）
+    int     forecastSamplesUsed = 0;
+};
+
 /**
  * 充电站数据访问层（SQLite）。
  * 表结构统一来自 src/database/schema.sql（编译为资源），不单独复制建表语句，
@@ -96,6 +127,26 @@ public:
     QVector<double> hourlyLoadSamples(int stationId, int hours,
                                       bool *usedDemoFallback = nullptr,
                                       QString *error = nullptr) const;
+
+    /**
+     * NO.16 平台级 24h 负荷采样（所有电站合计，策略与按站版一致）：
+     * 先按小时聚合 pile_power_logs（全平台求和），有效样本不足时回退
+     * 确定性仿真曲线（容量=全平台额定容量，末位对齐实时总负荷）。
+     */
+    QVector<double> platformHourlyLoadSamples(int hours,
+                                              bool *usedDemoFallback = nullptr,
+                                              QString *error = nullptr) const;
+
+    /**
+     * NO.16 Web 大屏全量快照：
+     * - 桩状态总量 / 在线率 / 实时总负荷（piles 实时库）；
+     * - 今日与近 7 日已完成订单营收/订单数/电量；
+     * - 近 24h 平台负荷 + 复用 cp::forecastLoad 产出未来 1~6h 预测。
+     * 全部为只读参数化查询，供 DashboardApiServer / 测试调用。
+     */
+    bool dashboardSnapshot(DashboardSnapshot *out,
+                           int forecastHorizon = 6,
+                           QString *error = nullptr) const;
 
     /** 按电桩编码精确查找（piles.code 唯一）；未找到返回 false，找到时可选回填 out */
     bool findPileByCode(const QString &code, PileInfo *out = nullptr);
