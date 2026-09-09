@@ -49,6 +49,7 @@ private:
     void refreshSales();
     void refreshPileStatus();
     void refreshPileManagement();
+    void refreshLoadForecast();
     void clearManageForm();
     void loadManageFormFromSelection();
     void submitManagePile(bool updateExisting);

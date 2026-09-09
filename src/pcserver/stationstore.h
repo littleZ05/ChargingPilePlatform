@@ -82,6 +82,21 @@ public:
     QVector<StationInfo> listStations();
     QVector<PileInfo>    listPiles(int stationId);
 
+    /**
+     * NO.17 负荷预测数据源
+     * - ratedCapacityKw：电站额定可用容量 = Σ(piles.power_kw)，预测钳制上界；
+     * - currentLoadKw：当前实时负荷 = Σ(充电中电桩 power_kw)；
+     * - hourlyLoadSamples：返回最近 hours 个整点小时负荷（旧→新，单位 kW）。
+     *   数据策略：先真实聚合 pile_power_logs（电站维度按小时求和）；
+     *   有效样本不足（< max(3, hours/3)）时回退到确定性仿真采样曲线，
+     *   并置 usedDemoFallback=true（UI 上如实标注“演示采样”）。
+     */
+    double ratedCapacityKw(int stationId, QString *error = nullptr) const;
+    double currentLoadKw(int stationId, QString *error = nullptr) const;
+    QVector<double> hourlyLoadSamples(int stationId, int hours,
+                                      bool *usedDemoFallback = nullptr,
+                                      QString *error = nullptr) const;
+
     /** 按电桩编码精确查找（piles.code 唯一）；未找到返回 false，找到时可选回填 out */
     bool findPileByCode(const QString &code, PileInfo *out = nullptr);
 

@@ -4,6 +4,7 @@
 #include <QtCharts/QCategoryAxis>
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
+#include <QtCharts/QDateTimeAxis>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
 
@@ -62,6 +63,7 @@
 
 #include "addstationdialog.h"
 #include "common.h"
+#include "loadforecast.h"
 #include "net_server.h"
 #include "stationstore.h"
 
@@ -502,6 +504,99 @@ void fillRevenueChart(QChartView *view, const QVector<RevenuePoint> &points, int
     series->attachAxis(axisX);
     series->attachAxis(axisY);
     chart->setMargins(QMargins(8, 4, 8, 4));
+
+    view->setChart(chart);
+    view->setRenderHint(QPainter::Antialiasing, true);
+}
+
+QDateTime currentHourAnchor()
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    return QDateTime(now.date(), QTime(now.time().hour(), 0));
+}
+
+/** NO.17 负荷预测曲线：历史实测（蓝实线）+ 未来预测（橙虚线）+ 当前时刻分隔线 */
+void fillLoadForecastChart(QChartView *view,
+                           const QString &stationName,
+                           const QDateTime &anchorHour,
+                           const QVector<double> &history,
+                           const cp::LoadForecastResult &result)
+{
+    auto *chart = new QChart;
+    chart->setTitle(QStringLiteral("%1 ｜ 近 %2 小时实测与未来 %3 小时预测（%4）")
+                        .arg(stationName)
+                        .arg(history.size())
+                        .arg(result.forecastKw.size())
+                        .arg(result.modelName));
+    chart->setMargins(QMargins(8, 4, 8, 4));
+    chart->legend()->setVisible(true);
+    chart->legend()->setAlignment(Qt::AlignBottom);
+
+    auto *historySeries = new QLineSeries(chart);
+    historySeries->setName(QStringLiteral("历史实测负荷"));
+    QPen historyPen(QColor(QStringLiteral("#2563eb")));
+    historyPen.setWidthF(2.5);
+    historySeries->setPen(historyPen);
+
+    auto *forecastSeries = new QLineSeries(chart);
+    forecastSeries->setName(QStringLiteral("未来预测负荷"));
+    QPen forecastPen(QColor(QStringLiteral("#f59e0b")));
+    forecastPen.setWidthF(3.0);
+    forecastPen.setStyle(Qt::DashLine);
+    forecastSeries->setPen(forecastPen);
+    forecastSeries->setPointsVisible(true);
+
+    auto *nowSeries = new QLineSeries(chart);
+    nowSeries->setName(QStringLiteral("当前时刻"));
+    QPen nowPen(QColor(QStringLiteral("#94a3b8")));
+    nowPen.setWidthF(1.5);
+    nowPen.setStyle(Qt::DashLine);
+    nowSeries->setPen(nowPen);
+
+    double maxValue = 0.0;
+    const int n = history.size();
+    for (int i = 0; i < n; ++i) {
+        historySeries->append(anchorHour.addSecs((i - n + 1) * 3600).toMSecsSinceEpoch(),
+                              history.at(i));
+        maxValue = std::max(maxValue, history.at(i));
+    }
+    for (int h = 0; h < result.forecastKw.size(); ++h) {
+        forecastSeries->append(anchorHour.addSecs((h + 1) * 3600).toMSecsSinceEpoch(),
+                               result.forecastKw.at(h));
+        maxValue = std::max(maxValue, result.forecastKw.at(h));
+    }
+    const double yMax = std::max(100.0, maxValue * 1.2);
+    const qint64 nowMs = anchorHour.toMSecsSinceEpoch();
+    nowSeries->append(nowMs, 0.0);
+    nowSeries->append(nowMs, yMax * 0.95);
+
+    chart->addSeries(historySeries);
+    chart->addSeries(forecastSeries);
+    chart->addSeries(nowSeries);
+
+    auto *axisX = new QDateTimeAxis(chart);
+    axisX->setFormat(QStringLiteral("HH:00"));
+    axisX->setTitleText(QStringLiteral("时间"));
+    axisX->setRange(anchorHour.addSecs((1 - n) * 3600),
+                    anchorHour.addSecs(result.forecastKw.size() * 3600));
+    axisX->setTickCount(std::min(
+        8, 4 + (n + static_cast<int>(result.forecastKw.size())) / 5));
+    axisX->setGridLineVisible(true);
+
+    auto *axisY = new QValueAxis(chart);
+    axisY->setTitleText(QStringLiteral("负荷 (kW)"));
+    axisY->setRange(0.0, yMax);
+    axisY->setTickCount(6);
+    axisY->setLabelFormat(QStringLiteral("%.0f"));
+
+    chart->addAxis(axisX, Qt::AlignBottom);
+    chart->addAxis(axisY, Qt::AlignLeft);
+    historySeries->attachAxis(axisX);
+    historySeries->attachAxis(axisY);
+    forecastSeries->attachAxis(axisX);
+    forecastSeries->attachAxis(axisY);
+    nowSeries->attachAxis(axisX);
+    nowSeries->attachAxis(axisY);
 
     view->setChart(chart);
     view->setRenderHint(QPainter::Antialiasing, true);
@@ -1532,6 +1627,14 @@ struct MainWindow::Private
     QChartView *salesChartView = nullptr;
     QTableWidget *ordersTable = nullptr;
 
+    QComboBox *forecastStationCombo = nullptr;
+    QComboBox *forecastWindowCombo = nullptr;
+    QComboBox *forecastHorizonCombo = nullptr;
+    QComboBox *forecastModelCombo = nullptr;
+    QChartView *forecastChartView = nullptr;
+    QLabel *forecastStatusLabel = nullptr;
+    QPushButton *forecastRefreshButton = nullptr;
+
     QLabel *statusTotalValue = nullptr;
     QLabel *statusIdleValue = nullptr;
     QLabel *statusChargingValue = nullptr;
@@ -1693,6 +1796,77 @@ void MainWindow::buildUi()
     salesLayout->addWidget(d->salesChartView);
     salesLayout->addWidget(d->ordersTable, 1);
     d->tabs->addTab(salesPage, QStringLiteral("销售业绩"));
+
+    auto *forecastPage = new QWidget(d->tabs);
+    auto *forecastLayout = new QVBoxLayout(forecastPage);
+    forecastLayout->setContentsMargins(0, 0, 0, 0);
+    forecastLayout->setSpacing(10);
+
+    auto *forecastToolbar = new QHBoxLayout;
+    auto *stationLabel = new QLabel(QStringLiteral("电站"), forecastPage);
+    d->forecastStationCombo = new QComboBox(forecastPage);
+    d->forecastStationCombo->setObjectName(QStringLiteral("forecastStationCombo"));
+    d->forecastStationCombo->setMinimumWidth(190);
+    auto *windowLabel = new QLabel(QStringLiteral("历史窗口"), forecastPage);
+    d->forecastWindowCombo = new QComboBox(forecastPage);
+    d->forecastWindowCombo->addItem(QStringLiteral("近 12 小时"), 12);
+    d->forecastWindowCombo->addItem(QStringLiteral("近 24 小时"), 24);
+    auto *horizonLabel = new QLabel(QStringLiteral("预测范围"), forecastPage);
+    d->forecastHorizonCombo = new QComboBox(forecastPage);
+    d->forecastHorizonCombo->addItem(QStringLiteral("未来 1 小时"), 1);
+    d->forecastHorizonCombo->addItem(QStringLiteral("未来 3 小时"), 3);
+    d->forecastHorizonCombo->addItem(QStringLiteral("未来 6 小时"), 6);
+    d->forecastHorizonCombo->setCurrentIndex(2);
+    auto *modelLabel = new QLabel(QStringLiteral("预测模型"), forecastPage);
+    d->forecastModelCombo = new QComboBox(forecastPage);
+    d->forecastModelCombo->addItem(QStringLiteral("最小二乘回归(OLS)"),
+                                   static_cast<int>(cp::ForecastModel::OLS));
+    d->forecastModelCombo->addItem(QStringLiteral("加权移动平均(WMA)"),
+                                   static_cast<int>(cp::ForecastModel::WMA));
+    d->forecastRefreshButton = new QPushButton(QStringLiteral("刷新"), forecastPage);
+
+    forecastToolbar->addWidget(stationLabel);
+    forecastToolbar->addWidget(d->forecastStationCombo);
+    forecastToolbar->addSpacing(8);
+    forecastToolbar->addWidget(windowLabel);
+    forecastToolbar->addWidget(d->forecastWindowCombo);
+    forecastToolbar->addSpacing(8);
+    forecastToolbar->addWidget(horizonLabel);
+    forecastToolbar->addWidget(d->forecastHorizonCombo);
+    forecastToolbar->addSpacing(8);
+    forecastToolbar->addWidget(modelLabel);
+    forecastToolbar->addWidget(d->forecastModelCombo);
+    forecastToolbar->addStretch(1);
+    forecastToolbar->addWidget(d->forecastRefreshButton);
+
+    d->forecastChartView = new QChartView(new QChart, forecastPage);
+    d->forecastChartView->setObjectName(QStringLiteral("forecastChartView"));
+    d->forecastChartView->setMinimumHeight(360);
+    d->forecastChartView->setRenderHint(QPainter::Antialiasing, true);
+
+    d->forecastStatusLabel = new QLabel(forecastPage);
+    d->forecastStatusLabel->setObjectName(QStringLiteral("forecastStatusLabel"));
+    d->forecastStatusLabel->setWordWrap(true);
+    d->forecastStatusLabel->setStyleSheet(QStringLiteral(
+        "color: #475569; background: #f8fafc; border: 1px solid #dbe3ea; "
+        "border-radius: 6px; padding: 8px 12px;"));
+
+    forecastLayout->addLayout(forecastToolbar);
+    forecastLayout->addWidget(d->forecastChartView, 1);
+    forecastLayout->addWidget(d->forecastStatusLabel);
+
+    connect(d->forecastRefreshButton, &QPushButton::clicked,
+            this, &MainWindow::refreshLoadForecast);
+    connect(d->forecastStationCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this]() { refreshLoadForecast(); });
+    connect(d->forecastWindowCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this]() { refreshLoadForecast(); });
+    connect(d->forecastHorizonCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this]() { refreshLoadForecast(); });
+    connect(d->forecastModelCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this]() { refreshLoadForecast(); });
+
+    d->tabs->addTab(forecastPage, QStringLiteral("负荷预测"));
 
     auto *statusPage = new QWidget(d->tabs);
     auto *statusLayout = new QVBoxLayout(statusPage);
@@ -1885,6 +2059,7 @@ void MainWindow::refreshAll()
     refreshPileManagement();
     refreshUsers();
     refreshStations();
+    refreshLoadForecast();
     updateActionButtons();
     d->adminLabel->setText(QStringLiteral("当前管理员：%1").arg(d->adminName));
 }
@@ -1904,6 +2079,93 @@ void MainWindow::refreshSales()
     }
     fillRevenueChart(d->salesChartView, points, days);
     fillOrdersTable(d->ordersTable, DatabaseManager::instance().recentOrders(12, &error));
+}
+
+void MainWindow::refreshLoadForecast()
+{
+    if (!d->forecastChartView || !d->forecastStationCombo || !d->forecastStatusLabel)
+        return;
+    if (!d->store || !d->store->isOpen()) {
+        d->forecastStatusLabel->setText(QStringLiteral("负荷预测不可用：数据库未就绪"));
+        return;
+    }
+
+    QString error;
+    const QVector<pcserver::StationInfo> stations = d->store->listStations();
+    if (stations.isEmpty()) {
+        d->forecastStationCombo->clear();
+        d->forecastStatusLabel->setText(QStringLiteral("暂无充电站数据，请先添加电站"));
+        return;
+    }
+
+    const int keepStationId = d->forecastStationCombo->currentData().toInt();
+    {
+        QSignalBlocker blocker(d->forecastStationCombo);
+        d->forecastStationCombo->clear();
+        for (const auto &station : stations)
+            d->forecastStationCombo->addItem(station.name, station.id);
+        const int index = d->forecastStationCombo->findData(keepStationId);
+        d->forecastStationCombo->setCurrentIndex(index >= 0 ? index : 0);
+    }
+
+    const int stationId = d->forecastStationCombo->currentData().toInt();
+    QString stationName = d->forecastStationCombo->currentText();
+    for (const auto &station : stations) {
+        if (station.id == stationId) {
+            stationName = station.name;
+            break;
+        }
+    }
+
+    const int hours = qMax(12, d->forecastWindowCombo->currentData().toInt());
+    const int horizon = qBound(1, d->forecastHorizonCombo->currentData().toInt(), 6);
+    const auto model = static_cast<cp::ForecastModel>(
+        d->forecastModelCombo->currentData().toInt());
+
+    bool usedDemoFallback = false;
+    const QVector<double> history =
+        d->store->hourlyLoadSamples(stationId, hours, &usedDemoFallback, &error);
+    if (history.size() != hours) {
+        d->forecastStatusLabel->setText(
+            QStringLiteral("历史负荷采样失败：%1").arg(error.isEmpty() ? QStringLiteral("未知错误") : error));
+        return;
+    }
+
+    const double capacityKw = d->store->ratedCapacityKw(stationId, &error);
+    cp::LoadForecastInput input;
+    input.historyKw = history;
+    input.horizonHours = horizon;
+    input.model = model;
+    input.capacityKw = capacityKw;
+    const cp::LoadForecastResult result = cp::forecastLoad(input);
+    if (!result.ok) {
+        d->forecastStatusLabel->setText(
+            QStringLiteral("预测计算失败：%1").arg(result.error));
+        return;
+    }
+
+    fillLoadForecastChart(d->forecastChartView, stationName, currentHourAnchor(),
+                          history, result);
+
+    const double currentKw = d->store->currentLoadKw(stationId, &error);
+    double displayCurrentKw = currentKw;
+    if (usedDemoFallback && !history.isEmpty())
+        displayCurrentKw = history.last();  // 仿真兜底时曲线末点即“当前”口径
+    const QString dataSource = usedDemoFallback
+        ? QStringLiteral("演示采样（真实记录不足，仿真曲线兜底）")
+        : QStringLiteral("桩功率日志真实聚合");
+    const QString trendText = QStringLiteral("%1 %2 kW/h")
+                                  .arg(cp::loadTrendText(result.trend))
+                                  .arg(result.slopeKwPerHour, 0, 'f', 1);
+    d->forecastStatusLabel->setText(QStringLiteral(
+        "当前负荷 %1 kW ｜ 预测模型：%2 ｜ 趋势：%3 ｜ "
+        "峰值预测 %4 kW（未来第 %5 小时）｜ 数据源：%6")
+        .arg(displayCurrentKw, 0, 'f', 1)
+        .arg(result.modelName)
+        .arg(trendText)
+        .arg(result.peakForecastKw, 0, 'f', 1)
+        .arg(result.peakHourOffset)
+        .arg(dataSource));
 }
 
 void MainWindow::refreshPileStatus()
