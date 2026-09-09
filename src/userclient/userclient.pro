@@ -11,14 +11,18 @@ INCLUDEPATH += $$PWD/../common
 SOURCES += \
     main.cpp \
     mainwindow.cpp \
+    servergateway.cpp \
     loginpage.cpp \
     stationpage.cpp \
     stationdetailpage.cpp \
     profilepage.cpp \
-    mappage.cpp
+    mappage.cpp \
+    ../common/net_client.cpp \
+    ../common/packet_assembler.cpp
 
 HEADERS += \
     mainwindow.h \
+    servergateway.h \
     loginpage.h \
     stationpage.h \
     stationdetailpage.h \
@@ -26,6 +30,8 @@ HEADERS += \
     mappage.h \
     station.h \
     tencentkey.h \
-    ../common/common.h
+    ../common/common.h \
+    ../common/net_client.h \
+    ../common/packet_assembler.h
 
 QMAKE_CXXFLAGS += -Wall

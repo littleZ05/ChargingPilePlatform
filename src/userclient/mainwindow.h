@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 
+class ServerGateway;
 class QStackedWidget;
 class QButtonGroup;
 class LoginPage;
@@ -30,6 +31,7 @@ private slots:
     void onLogout();
 
 private:
+    ServerGateway *m_gateway = nullptr;   // 联调网关（integration 分支）
     void setupMainPage();
 
     QStackedWidget    *m_root       = nullptr;
