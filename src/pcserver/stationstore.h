@@ -26,6 +26,8 @@ struct StationInfo
     double onlineRate  = 0.0; // 当前在线率 0~100
     double basePrice   = 0.0; // 基础电价（元/度）
     double currentPrice = 0.0; // 当前执行价（基础价 × 最新生效营销折扣）
+    double discount    = 1.0; // 最新生效折扣（1.0=无折扣）
+    bool   onSale      = false; // 是否处于“闲时特惠”
 };
 
 /** 站内电桩实时状态（数据访问层返回结构） */

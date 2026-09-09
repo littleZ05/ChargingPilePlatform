@@ -334,6 +334,8 @@ QVector<StationInfo> StationStore::listStations()
         info.onlinePiles = q.value(7).toInt();
         info.basePrice  = q.value(8).toDouble();
         const double discount = q.value(9).toDouble();
+        info.discount = discount;
+        info.onSale   = discount < 1.0 - 1e-9;
         info.currentPrice = info.basePrice * discount;
         info.onlineRate = info.totalPiles > 0
                               ? 100.0 * info.onlinePiles / info.totalPiles

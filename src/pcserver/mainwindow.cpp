@@ -2637,6 +2637,8 @@ void MainWindow::handleStationQueryPacket(QTcpSocket *client,
         item.insert(QStringLiteral("online_rate"), station.onlineRate);
         item.insert(QStringLiteral("base_price"), station.basePrice);
         item.insert(QStringLiteral("price"), station.currentPrice);
+        item.insert(QStringLiteral("discount"), station.discount);
+        item.insert(QStringLiteral("is_discount"), station.onSale);
         stationArray.append(item);
         ++returned;
     }
