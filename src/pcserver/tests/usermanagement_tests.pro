@@ -1,5 +1,5 @@
 # PC 服务器端 - 用户管理界面测试（offscreen）
-QT       += core gui widgets sql charts testlib
+QT       += core gui widgets sql charts network testlib
 CONFIG   += console c++17 testcase
 CONFIG   -= app_bundle
 
@@ -12,12 +12,16 @@ SOURCES += \
     $$PWD/tst_usermanagement.cpp \
     $$PWD/../addstationdialog.cpp \
     $$PWD/../mainwindow.cpp \
-    $$PWD/../stationstore.cpp
+    $$PWD/../stationstore.cpp \
+    $$PWD/../../common/net_server.cpp \
+    $$PWD/../../common/packet_assembler.cpp
 
 HEADERS += \
     $$PWD/../addstationdialog.h \
     $$PWD/../mainwindow.h \
-    $$PWD/../stationstore.h
+    $$PWD/../stationstore.h \
+    $$PWD/../../common/net_server.h \
+    $$PWD/../../common/packet_assembler.h
 
 FORMS += \
     $$PWD/../mainwindow.ui

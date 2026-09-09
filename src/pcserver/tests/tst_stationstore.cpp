@@ -3,6 +3,7 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QVariant>
 
@@ -41,6 +42,8 @@ private slots:
     void schemaCreatesContractTables();
     void addStationCreatesStationAndSimulatedPiles();
     void listStationsReportsOnlineRate();
+    void listStationsReportsIdleCountAndCurrentPrice();
+    void findPileByCode();
     void invalidInputIsRejected();
     void setPileStateRefreshesOnlineRate();
     void seedDemoIfEmpty_data();
@@ -140,6 +143,81 @@ void TstStationStore::listStationsReportsOnlineRate()
     QCOMPARE(info.onlinePiles, 9);
     QVERIFY2(qAbs(info.onlineRate - 90.0) < 1e-6, qPrintable(QString::number(info.onlineRate)));
 
+}
+
+void TstStationStore::listStationsReportsIdleCountAndCurrentPrice()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("price.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+
+    // 10 根桩固定分布：i=9 故障、i=1/4/7 充电中、其余 6 根闲置
+    const int stationId = store.addStation(
+        QStringLiteral("价格测试站"), QStringLiteral("沈阳市测试路 4 号"),
+        123.300000, 41.900000, 10, &error);
+    QVERIFY2(stationId > 0, qPrintable(error));
+
+    StationInfo info = stationById(store.listStations(), stationId);
+    QCOMPARE(info.totalPiles, 10);
+    QCOMPARE(info.idlePiles, 6);
+    QCOMPARE(info.onlinePiles, 9);
+    QCOMPARE(info.basePrice, 1.0);
+    QVERIFY(qAbs(info.currentPrice - 1.0) < 1e-9); // 无营销策略=基础价
+
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    QSqlQuery insert(db);
+    insert.prepare(QStringLiteral(
+        "INSERT INTO marketing_strategy(station_id, base_price, discount, "
+        "rule_desc, is_active) VALUES(?, ?, ?, ?, 1)"));
+    insert.addBindValue(stationId);
+    insert.addBindValue(1.0);
+    insert.addBindValue(0.8);
+    insert.addBindValue(QStringLiteral("测试：生效 8 折"));
+    QVERIFY2(insert.exec(), qPrintable(insert.lastError().text()));
+
+    info = stationById(store.listStations(), stationId);
+    QVERIFY(qAbs(info.currentPrice - 0.8) < 1e-9); // 基础价 × 0.8
+
+    QSqlQuery deactivate(db);
+    deactivate.prepare(QStringLiteral(
+        "UPDATE marketing_strategy SET is_active = 0 WHERE station_id = ?"));
+    deactivate.addBindValue(stationId);
+    QVERIFY(deactivate.exec());
+
+    info = stationById(store.listStations(), stationId);
+    QVERIFY(qAbs(info.currentPrice - 1.0) < 1e-9); // 停用后恢复基础价
+}
+
+void TstStationStore::findPileByCode()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("pilecode.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+
+    const int stationId = store.addStation(
+        QStringLiteral("查桩测试站"), QStringLiteral("沈阳市测试路 5 号"),
+        123.400000, 41.500000, 4, &error);
+    QVERIFY2(stationId > 0, qPrintable(error));
+
+    const auto piles = store.listPiles(stationId);
+    QCOMPARE(piles.size(), 4);
+
+    PileInfo found;
+    QVERIFY(store.findPileByCode(piles.at(2).code, &found));
+    QCOMPARE(found.id, piles.at(2).id);
+    QCOMPARE(found.stationId, stationId);
+    QCOMPARE(found.code, piles.at(2).code);
+    QCOMPARE(found.type, piles.at(2).type);
+    QCOMPARE(found.state, piles.at(2).state);
+
+    // 编码唯一精确匹配，编码首尾空白容忍
+    QVERIFY(store.findPileByCode(
+        QStringLiteral("  %1  ").arg(piles.first().code)));
+    QVERIFY(!store.findPileByCode(QStringLiteral("NO-SUCH-PILE")));
 }
 
 void TstStationStore::invalidInputIsRejected()

@@ -21,8 +21,11 @@ struct StationInfo
     double longitude = 0.0;
     double latitude  = 0.0;
     int    totalPiles  = 0;   // 实际电桩数（以 piles 表为准）
+    int    idlePiles   = 0;   // 空闲电桩数（state = 闲置）
     int    onlinePiles = 0;   // 在线电桩数（state != 故障）
     double onlineRate  = 0.0; // 当前在线率 0~100
+    double basePrice   = 0.0; // 基础电价（元/度）
+    double currentPrice = 0.0; // 当前执行价（基础价 × 最新生效营销折扣）
 };
 
 /** 站内电桩实时状态（数据访问层返回结构） */
@@ -76,6 +79,9 @@ public:
 
     QVector<StationInfo> listStations();
     QVector<PileInfo>    listPiles(int stationId);
+
+    /** 按电桩编码精确查找（piles.code 唯一）；未找到返回 false，找到时可选回填 out */
+    bool findPileByCode(const QString &code, PileInfo *out = nullptr);
 
     /**
      * 新增充电站（模拟新增）：写入 stations 一行，

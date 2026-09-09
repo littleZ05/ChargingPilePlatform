@@ -309,7 +309,12 @@ QVector<StationInfo> StationStore::listStations()
     const QString sql = QStringLiteral(
         "SELECT s.id, s.name, s.address, s.longitude, s.latitude, "
         "       COUNT(p.id) AS total_cnt, "
-        "       COALESCE(SUM(CASE WHEN p.state <> 2 THEN 1 ELSE 0 END), 0) AS online_cnt "
+        "       COALESCE(SUM(CASE WHEN p.state = 0 THEN 1 ELSE 0 END), 0) AS idle_cnt, "
+        "       COALESCE(SUM(CASE WHEN p.state <> 2 THEN 1 ELSE 0 END), 0) AS online_cnt, "
+        "       s.base_price, "
+        "       COALESCE((SELECT m.discount FROM marketing_strategy m "
+        "                    WHERE m.station_id = s.id AND m.is_active = 1 "
+        "                    ORDER BY m.id DESC LIMIT 1), 1.0) AS discount "
         "FROM stations s "
         "LEFT JOIN piles p ON p.station_id = s.id "
         "GROUP BY s.id "
@@ -325,7 +330,11 @@ QVector<StationInfo> StationStore::listStations()
         info.longitude  = q.value(3).toDouble();
         info.latitude   = q.value(4).toDouble();
         info.totalPiles = q.value(5).toInt();
-        info.onlinePiles = q.value(6).toInt();
+        info.idlePiles  = q.value(6).toInt();
+        info.onlinePiles = q.value(7).toInt();
+        info.basePrice  = q.value(8).toDouble();
+        const double discount = q.value(9).toDouble();
+        info.currentPrice = info.basePrice * discount;
         info.onlineRate = info.totalPiles > 0
                               ? 100.0 * info.onlinePiles / info.totalPiles
                               : 0.0;
@@ -359,6 +368,30 @@ QVector<PileInfo> StationStore::listPiles(int stationId)
         result.append(pile);
     }
     return result;
+}
+
+bool StationStore::findPileByCode(const QString &code, PileInfo *out)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT id, station_id, code, type, power_kw, state, "
+        "       charge_count, charge_seconds "
+        "FROM piles WHERE code = ?"));
+    q.addBindValue(code.trimmed());
+    if (!q.exec() || !q.next())
+        return false;
+
+    if (out) {
+        out->id            = q.value(0).toInt();
+        out->stationId     = q.value(1).toInt();
+        out->code          = q.value(2).toString();
+        out->type          = q.value(3).toString();
+        out->powerKw       = q.value(4).toDouble();
+        out->state         = static_cast<cp::PileState>(q.value(5).toInt());
+        out->chargeCount   = q.value(6).toInt();
+        out->chargeSeconds = q.value(7).toLongLong();
+    }
+    return true;
 }
 
 int StationStore::addStation(const QString &name,

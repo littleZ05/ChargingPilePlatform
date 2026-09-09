@@ -35,6 +35,15 @@
   列表“当前在线率 = 非故障电桩数 / 总电桩数 × 100%”同步刷新。
   后续接入真实 Socket 上报时，可把模拟推进替换为实时数据源。
 
+## Socket 业务接入（NO.19 → 业务层）
+
+- `MainWindow` 初始化时创建 `cp::NetServer` 并以公共端口 `cp::kServerPort`（9999）监听，
+  退出 / 析构时安全回收连接资源；全程 Qt 信号槽 + 事件循环，无裸线程 / 锁。
+- `packetReceived` 信号已接到业务分发槽：`kHeartbeat`（心跳 ACK）、
+  `kStationQuery`（电站列表 + 空闲桩数 + 当前价格）、`kOrderReport`（订单上报处理回包）。
+- 完整协议定义见 [docs/socket-protocol.md](../docs/socket-protocol.md)。
+- 业务层自动化验证：`tests/tst_socketbiz.pro`（真实 NetClient ↔ MainWindow NetServer）。
+
 ## 目录结构
 
 ```text
@@ -70,6 +79,10 @@ qmake6 <仓库>/src/pcserver/tests/stationstore_tests.pro && make && ./tst_stati
 # 界面测试（无需显示器）
 mkdir -p /tmp/station-ui-test && cd /tmp/station-ui-test
 qmake6 <仓库>/src/pcserver/tests/stationui_tests.pro && make && QT_QPA_PLATFORM=offscreen ./tst_stationui
+
+# Socket 业务协议测试（心跳/电站查询/订单上报）
+mkdir -p /tmp/socket-biz-test && cd /tmp/socket-biz-test
+qmake6 <仓库>/src/pcserver/tests/tst_socketbiz.pro && make && QT_QPA_PLATFORM=offscreen ./tst_socketbiz
 
 # 数据库核心表契约/一致性/索引测试（schema.sql v2）
 mkdir -p /tmp/schema-test && cd /tmp/schema-test

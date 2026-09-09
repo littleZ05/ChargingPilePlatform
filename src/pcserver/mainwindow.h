@@ -1,12 +1,15 @@
 #ifndef PCSERVER_MAINWINDOW_H
 #define PCSERVER_MAINWINDOW_H
 
+#include <QByteArray>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QString>
 
 #include "stationstore.h"
 
 namespace Ui { class MainWindow; }
+class QTcpSocket;
 
 namespace pcserver {
 
@@ -30,11 +33,19 @@ public:
 
 private slots:
     void simulateRealtimeOnce();
+    void handleSocketPacket(QTcpSocket *client, quint16 msgType,
+                            const QByteArray &body);
     void changeSelectedUserStatus(int status);
 
 private:
     void buildUi();
     void refreshAll();
+    void startSocketServer();
+    void sendSocketReply(QTcpSocket *client, quint16 msgType,
+                         const QJsonObject &payload);
+    void handleHeartbeatPacket(QTcpSocket *client, const QByteArray &body);
+    void handleStationQueryPacket(QTcpSocket *client, const QByteArray &body);
+    void handleOrderReportPacket(QTcpSocket *client, const QByteArray &body);
     void refreshSales();
     void refreshPileStatus();
     void refreshPileManagement();

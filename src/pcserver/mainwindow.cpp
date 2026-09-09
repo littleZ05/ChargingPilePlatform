@@ -12,6 +12,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QComboBox>
+#include <QDebug>
 #include <QDate>
 #include <QDateTime>
 #include <QDialog>
@@ -27,6 +28,11 @@
 #include <QHeaderView>
 #include <QHash>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QJsonValue>
 #include <QFont>
 #include <QMargins>
 #include <QLabel>
@@ -43,6 +49,7 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QSplitter>
+#include <QTcpSocket>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTimer>
@@ -51,9 +58,11 @@
 #include <QWidget>
 
 #include <algorithm>
+#include <cmath>
 
 #include "addstationdialog.h"
 #include "common.h"
+#include "net_server.h"
 #include "stationstore.h"
 
 namespace {
@@ -189,6 +198,38 @@ QString durationText(int seconds)
 QString moneyText(double value)
 {
     return cp::money(value);
+}
+
+QString socketServerTimeText()
+{
+    return QDateTime::currentDateTime().toString(
+        QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+}
+
+QJsonObject socketResponseEnvelope(int code, const QString &message)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("code"), code);
+    object.insert(QStringLiteral("message"), message);
+    object.insert(QStringLiteral("server_time"), socketServerTimeText());
+    return object;
+}
+
+bool parseSocketJsonObject(const QByteArray &body, QJsonObject *out)
+{
+    if (!out)
+        return false;
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject())
+        return false;
+    *out = document.object();
+    return true;
+}
+
+QByteArray socketJsonCompact(const QJsonObject &object)
+{
+    return QJsonDocument(object).toJson(QJsonDocument::Compact);
 }
 
 void clearLayout(QLayout *layout)
@@ -1478,6 +1519,8 @@ struct MainWindow::Private
     Ui::MainWindow *ui = nullptr;
     QString adminName;
     pcserver::StationStore *store = nullptr;
+    cp::NetServer *netServer = nullptr;   // 持有：Socket 服务端（构造时创建，析构时回收）
+    bool socketStarted = false;
 
     QTabWidget *tabs = nullptr;
     QLabel *adminLabel = nullptr;
@@ -1551,12 +1594,24 @@ MainWindow::MainWindow(pcserver::StationStore *store, const QString &adminName, 
     d->ui = new Ui::MainWindow;
     d->ui->setupUi(this);
     buildUi();
+    startSocketServer();
     refreshAll();
-    statusBar()->showMessage(QStringLiteral("登录成功：%1").arg(adminName), 5000);
+    statusBar()->showMessage(
+        QStringLiteral("登录成功：%1%2")
+            .arg(adminName,
+                 d->socketStarted
+                     ? QStringLiteral("，Socket 服务已监听端口 %1").arg(cp::kServerPort)
+                     : QStringLiteral("，Socket 服务启动失败（端口 %1）").arg(cp::kServerPort)),
+        6000);
 }
 
 MainWindow::~MainWindow()
 {
+    if (d->netServer) {
+        d->netServer->stopServer();
+        delete d->netServer; // 已从本窗口子对象链移除，避免析构重复释放
+        d->netServer = nullptr;
+    }
     delete d->ui;
     delete d;
 }
@@ -2450,4 +2505,228 @@ void MainWindow::onAddStationClicked()
             .arg(stationId)
             .arg(dialog.pileCount()),
         5000);
+}
+
+void MainWindow::startSocketServer()
+{
+    d->netServer = new cp::NetServer(this);
+    connect(d->netServer, &cp::NetServer::packetReceived,
+            this, &MainWindow::handleSocketPacket);
+
+    const auto port = static_cast<quint16>(cp::kServerPort);
+    d->socketStarted = d->netServer->startServer(port);
+    if (d->socketStarted) {
+        qInfo().noquote()
+            << QStringLiteral("[net] Socket 服务已监听端口 %1").arg(port);
+    } else {
+        qWarning().noquote()
+            << QStringLiteral("[net] Socket 服务监听端口 %1 失败").arg(port);
+    }
+}
+
+void MainWindow::sendSocketReply(QTcpSocket *client, quint16 msgType,
+                                 const QJsonObject &payload)
+{
+    if (!client || !d->netServer) {
+        qWarning() << "[net] 回包失败：服务端或客户端句柄不可用";
+        return;
+    }
+    if (!d->netServer->sendPacket(client, msgType, socketJsonCompact(payload))) {
+        qWarning() << "[net] 回包发送失败 msgType=" << msgType;
+    }
+}
+
+void MainWindow::handleSocketPacket(QTcpSocket *client, quint16 msgType,
+                                    const QByteArray &body)
+{
+    switch (msgType) {
+    case static_cast<quint16>(cp::MsgType::kHeartbeat):
+        handleHeartbeatPacket(client, body);
+        break;
+    case static_cast<quint16>(cp::MsgType::kStationQuery):
+        handleStationQueryPacket(client, body);
+        break;
+    case static_cast<quint16>(cp::MsgType::kOrderReport):
+        handleOrderReportPacket(client, body);
+        break;
+    default:
+        qWarning() << "[net] 收到未注册 MsgType:" << msgType;
+        break;
+    }
+}
+
+void MainWindow::handleHeartbeatPacket(QTcpSocket *client, const QByteArray &body)
+{
+    QJsonObject request;
+    QJsonObject response;
+    if (!parseSocketJsonObject(body, &request)) {
+        response = socketResponseEnvelope(
+            400, QStringLiteral("心跳负载必须是 JSON 对象"));
+    } else {
+        response = socketResponseEnvelope(0, QStringLiteral("pong"));
+        const QJsonValue clientId = request.value(QStringLiteral("client_id"));
+        if (clientId.isString()) {
+            response.insert(QStringLiteral("client_id"), clientId.toString());
+        }
+        const QJsonValue ts = request.value(QStringLiteral("ts"));
+        if (ts.isDouble()) {
+            response.insert(QStringLiteral("ts"), ts.toDouble());
+        }
+    }
+    sendSocketReply(client, static_cast<quint16>(cp::MsgType::kHeartbeat),
+                    response);
+}
+
+void MainWindow::handleStationQueryPacket(QTcpSocket *client,
+                                          const QByteArray &body)
+{
+    const auto msgType = static_cast<quint16>(cp::MsgType::kStationQuery);
+    if (!d->store || !d->store->isOpen()) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            503, QStringLiteral("电站数据服务未就绪")));
+        return;
+    }
+
+    QJsonObject request;
+    if (!parseSocketJsonObject(body, &request)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("电站查询负载必须是 JSON 对象")));
+        return;
+    }
+
+    const QJsonValue stationValue = request.value(QStringLiteral("station_id"));
+    const int stationId = stationValue.isDouble() ? stationValue.toInt() : 0;
+    int limit = request.value(QStringLiteral("limit")).toInt(100);
+    limit = qBound(1, limit, 200);
+
+    QVector<pcserver::StationInfo> stations = d->store->listStations();
+    if (stationId > 0) {
+        QVector<pcserver::StationInfo> filtered;
+        for (const pcserver::StationInfo &station : stations) {
+            if (station.id == stationId) {
+                filtered.append(station);
+                break;
+            }
+        }
+        if (filtered.isEmpty()) {
+            sendSocketReply(
+                client, msgType,
+                socketResponseEnvelope(
+                    404, QStringLiteral("电站不存在：id=%1").arg(stationId)));
+            return;
+        }
+        stations = filtered;
+    }
+
+    QJsonArray stationArray;
+    int returned = 0;
+    for (const pcserver::StationInfo &station : stations) {
+        if (returned >= limit)
+            break;
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), station.id);
+        item.insert(QStringLiteral("name"), station.name);
+        item.insert(QStringLiteral("address"), station.address);
+        item.insert(QStringLiteral("longitude"), station.longitude);
+        item.insert(QStringLiteral("latitude"), station.latitude);
+        item.insert(QStringLiteral("total_piles"), station.totalPiles);
+        item.insert(QStringLiteral("idle_piles"), station.idlePiles);
+        item.insert(QStringLiteral("online_piles"), station.onlinePiles);
+        item.insert(QStringLiteral("online_rate"), station.onlineRate);
+        item.insert(QStringLiteral("base_price"), station.basePrice);
+        item.insert(QStringLiteral("price"), station.currentPrice);
+        stationArray.append(item);
+        ++returned;
+    }
+
+    QJsonObject response =
+        socketResponseEnvelope(0, QStringLiteral("ok"));
+    response.insert(QStringLiteral("total"), returned);
+    response.insert(QStringLiteral("stations"), stationArray);
+    sendSocketReply(client, msgType, response);
+}
+
+void MainWindow::handleOrderReportPacket(QTcpSocket *client,
+                                         const QByteArray &body)
+{
+    const auto msgType = static_cast<quint16>(cp::MsgType::kOrderReport);
+    QJsonObject request;
+    if (!parseSocketJsonObject(body, &request)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("订单上报负载必须是 JSON 对象")));
+        return;
+    }
+
+    const QString orderNo =
+        request.value(QStringLiteral("order_no")).toString().trimmed();
+    const QString pileCode =
+        request.value(QStringLiteral("pile_code")).toString().trimmed();
+    const QJsonValue kwhValue = request.value(QStringLiteral("kwh"));
+    const QJsonValue amountValue = request.value(QStringLiteral("amount"));
+
+    const auto sendError = [&](int code, const QString &message) {
+        QJsonObject response = socketResponseEnvelope(code, message);
+        response.insert(QStringLiteral("order_no"), orderNo);
+        response.insert(QStringLiteral("pile_code"), pileCode);
+        response.insert(QStringLiteral("received"), false);
+        sendSocketReply(client, msgType, response);
+    };
+
+    if (orderNo.isEmpty() || pileCode.isEmpty() || !kwhValue.isDouble()
+        || !amountValue.isDouble()) {
+        sendError(400, QStringLiteral("订单上报缺少必填字段：order_no / pile_code / kwh / amount"));
+        return;
+    }
+    const double kwh = kwhValue.toDouble();
+    const double amount = amountValue.toDouble();
+    if (!std::isfinite(kwh) || kwh < 0.0 || kwh > 1000000.0
+        || !std::isfinite(amount) || amount < 0.0 || amount > 1000000000.0) {
+        sendError(400, QStringLiteral("电量或金额超出合法范围"));
+        return;
+    }
+
+    pcserver::PileInfo pile;
+    if (!d->store || !d->store->isOpen()
+        || !d->store->findPileByCode(pileCode, &pile)) {
+        sendError(404, QStringLiteral("电桩编码不存在：%1").arg(pileCode));
+        return;
+    }
+    if (pile.state == cp::PileState::Fault) {
+        sendError(409, QStringLiteral("电桩处于故障状态，暂不受理结算上报"));
+        return;
+    }
+
+    bool freed = false;
+    if (pile.state == cp::PileState::Charging) {
+        QString error;
+        if (!d->store->setPileState(pile.id, cp::PileState::Idle, &error)) {
+            sendError(500, error.isEmpty() ? QStringLiteral("电桩状态更新失败")
+                                           : error);
+            return;
+        }
+        freed = true;
+        refreshStations(); // 桩状态变更后同步刷新界面
+    }
+
+    QJsonObject response = socketResponseEnvelope(
+        0, freed ? QStringLiteral("订单已受理，电桩已释放")
+                 : QStringLiteral("订单已受理（电桩当前已闲置）"));
+    response.insert(QStringLiteral("order_no"), orderNo);
+    response.insert(QStringLiteral("pile_code"), pileCode);
+    response.insert(QStringLiteral("pile_id"), pile.id);
+    response.insert(QStringLiteral("station_id"), pile.stationId);
+    response.insert(QStringLiteral("kwh"), kwh);
+    response.insert(QStringLiteral("amount"), amount);
+    response.insert(QStringLiteral("received"), true);
+    response.insert(QStringLiteral("pile_freed"), freed);
+    sendSocketReply(client, msgType, response);
+
+    qInfo().noquote()
+        << QStringLiteral("[net][订单上报] order=%1 pile=%2 kwh=%3 amount=%4")
+               .arg(orderNo, pileCode)
+               .arg(kwh, 0, 'f', 2)
+               .arg(amount, 0, 'f', 2);
 }
