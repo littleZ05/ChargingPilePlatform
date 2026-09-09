@@ -63,10 +63,12 @@ launch_gui "InnovationDemo" innovation_demo InnovationDemo
 echo "== 5/5 打开 Web 大屏（离线 ECharts） =="
 if command -v xdg-open >/dev/null 2>&1; then
   xdg-open "file://$SRC/webdashboard/index.html" >/dev/null 2>&1 &
-  echo "  已用默认浏览器打开大屏页面（Ctrl+F5 强刷）"
+  echo "  已用默认浏览器打开大屏页面（10s 自动刷新；Ctrl+F5 强刷）"
 else
   echo "  未找到 xdg-open，请手动打开: $SRC/webdashboard/index.html"
 fi
+echo "  大屏数据源：PcServer 内置 http://127.0.0.1:8890/api/dashboard/overview"
+echo "  若 PcServer 未运行，页面自动保留离线演示数据并在页脚标注。"
 
 if [ "$OPEN_DOCS" = "1" ]; then
   echo "== 附加：打开文档 =="
@@ -89,6 +91,6 @@ echo " 演示窗口已启动。核对清单："
 echo " 1) PcServer      —— 电站列表/明细 3 秒刷新/新增电站"
 echo " 2) UserClient    —— 附近电站（腾讯 POI）/ 详情 / 定位兜底"
 echo " 3) InnovationDemo—— 动态计费 80%→闲时特惠；连点 3 次异常→自愈重启"
-echo " 4) Web 大屏      —— KPI+3 图，可断网 Ctrl+F5"
+echo " 4) Web 大屏      —— KPI 6 卡 + 3 图；PcServer 在线自动刷新，离线自动兜底"
 echo " 若窗口被遮挡，用 Alt+Tab 切换。"
 echo "=============================================="

@@ -1,4 +1,5 @@
 #include "stationstore.h"
+#include "loadforecast.h"
 
 #include <QDir>
 #include <QHash>
@@ -85,6 +86,34 @@ double roundLoad(double value)
 {
     return qRound(value * 10.0) / 10.0;
 }
+
+/** 全平台电桩功率合计（stateFilter<0 表示全部，否则按状态过滤）；失败返回 -1 */
+double sumPilesPower(const QSqlDatabase &db, int stateFilter, QString *errorText)
+{
+    QSqlQuery q(db);
+    if (stateFilter >= 0) {
+        q.prepare(QStringLiteral(
+            "SELECT COALESCE(SUM(power_kw), 0) FROM piles WHERE state = ?"));
+        q.addBindValue(stateFilter);
+    } else {
+        q.prepare(QStringLiteral(
+            "SELECT COALESCE(SUM(power_kw), 0) FROM piles"));
+    }
+    if (!q.exec()) {
+        if (errorText) *errorText = queryError(q);
+        return -1.0;
+    }
+    q.next();
+    return q.value(0).toDouble();
+}
+
+/** 单日订单聚合（大屏 7 日营收/订单用） */
+struct DayOrderAgg
+{
+    int    orders = 0;
+    double revenue = 0.0;
+    double energyKwh = 0.0;
+};
 
 /**
  * 仿真采样曲线（确定性、无随机数）：
@@ -529,6 +558,211 @@ QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
     // 2) 样本不足 → 仿真采样兜底（确定性，答辩演示稳定）
     if (usedDemoFallback) *usedDemoFallback = true;
     return demoHourlyLoadSeries(stationId, hours, anchorHour, capacityKw, currentKw);
+}
+
+QVector<double> StationStore::platformHourlyLoadSamples(int hours,
+                                                        bool *usedDemoFallback,
+                                                        QString *error) const
+{
+    QVector<double> result;
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return result;
+    }
+
+    hours = std::max(1, std::min(hours, 48));
+    const QDateTime anchorHour = currentHourStart();
+    const QDateTime windowStart = anchorHour.addSecs(-(hours - 1) * 3600);
+    const QDateTime windowEnd = anchorHour.addSecs(3600);
+
+    // 1) 真实聚合优先：近 hours 小时整点桶内的全平台桩功率日志求和
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT l.logged_at, l.real_power "
+        "FROM pile_power_logs l "
+        "JOIN piles p ON p.id = l.pile_id "
+        "WHERE l.real_power > 0 "
+        "  AND l.logged_at >= ? AND l.logged_at < ?"));
+    q.addBindValue(windowStart.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    q.addBindValue(windowEnd.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    if (!q.exec()) {
+        if (error) *error = queryError(q);
+        return result;
+    }
+
+    QHash<qint64, double> loadByHour;
+    while (q.next()) {
+        const QDateTime logged = QDateTime::fromString(q.value(0).toString(),
+                                                       QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        if (!logged.isValid())
+            continue;
+        const QDateTime bucketStart(logged.date(), QTime(logged.time().hour(), 0));
+        loadByHour[bucketStart.toMSecsSinceEpoch()] += q.value(1).toDouble();
+    }
+
+    QString capError;
+    QString curError;
+    const double capacityKw =
+        sumPilesPower(m_db, -1, &capError);
+    const double currentKw =
+        sumPilesPower(m_db, static_cast<int>(cp::PileState::Charging), &curError);
+    if (capacityKw < 0.0 || currentKw < 0.0) {
+        if (error)
+            *error = QStringLiteral("统计平台功率失败：%1%2")
+                         .arg(capError, curError);
+        return result;
+    }
+
+    result.reserve(hours);
+    int nonZeroSamples = 0;
+    for (int k = 0; k < hours; ++k) {
+        const QDateTime bucketStart = windowStart.addSecs(k * 3600);
+        double kw = loadByHour.value(bucketStart.toMSecsSinceEpoch(), 0.0);
+        if (k == hours - 1 && currentKw > 0.0)
+            kw = currentKw;  // 最近小时与实时充电状态对齐
+        if (kw > 0.0)
+            ++nonZeroSamples;
+        result.push_back(roundLoad(kw));
+    }
+
+    const int needReal = std::max(3, hours / 3);
+    if (nonZeroSamples >= needReal) {
+        if (usedDemoFallback) *usedDemoFallback = false;
+        return result;
+    }
+
+    // 2) 样本不足 → 全平台仿真采样兜底（确定性，答辩演示稳定）
+    if (usedDemoFallback) *usedDemoFallback = true;
+    return demoHourlyLoadSeries(0, hours, anchorHour, capacityKw, currentKw);
+}
+
+bool StationStore::dashboardSnapshot(DashboardSnapshot *out, int forecastHorizon,
+                                     QString *error) const
+{
+    if (!out) {
+        if (error) *error = QStringLiteral("输出参数为空");
+        return false;
+    }
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    DashboardSnapshot snap;
+
+    // 1) 桩状态总量与在线率（真实库，与充电站管理同源）
+    QSqlQuery pilesQ(m_db);
+    if (!pilesQ.exec(QStringLiteral(
+            "SELECT COUNT(*), "
+            "       COALESCE(SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END), 0), "
+            "       COALESCE(SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END), 0), "
+            "       COALESCE(SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END), 0) "
+            "FROM piles"))) {
+        if (error) *error = queryError(pilesQ);
+        return false;
+    }
+    pilesQ.next();
+    snap.totalPiles     = pilesQ.value(0).toInt();
+    snap.idlePiles      = pilesQ.value(1).toInt();
+    snap.chargingPiles  = pilesQ.value(2).toInt();
+    snap.faultPiles     = pilesQ.value(3).toInt();
+    if (snap.totalPiles > 0) {
+        snap.onlineRate = qRound(100.0 * (snap.totalPiles - snap.faultPiles)
+                                 / snap.totalPiles * 10.0) / 10.0;
+    }
+
+    // 2) 平台额定容量与实时总负荷
+    QString powerError;
+    snap.totalCapacityKw = sumPilesPower(m_db, -1, &powerError);
+    if (snap.totalCapacityKw < 0.0) {
+        if (error) *error = QStringLiteral("统计平台额定容量失败：%1").arg(powerError);
+        return false;
+    }
+    powerError.clear();
+    snap.currentLoadKw =
+        sumPilesPower(m_db, static_cast<int>(cp::PileState::Charging), &powerError);
+    if (snap.currentLoadKw < 0.0) {
+        if (error) *error = QStringLiteral("统计实时总负荷失败：%1").arg(powerError);
+        return false;
+    }
+
+    // 3) 今日与近 7 日已完成订单（营收/订单数/电量，缺日补 0）
+    const QDate today = QDate::currentDate();
+    const QDate firstDay = today.addDays(-6);
+    QSqlQuery orderQ(m_db);
+    orderQ.prepare(QStringLiteral(
+        "SELECT substr(end_time, 1, 10) AS day, COUNT(*) AS cnt, "
+        "       COALESCE(SUM(amount), 0) AS revenue, "
+        "       COALESCE(SUM(kwh), 0) AS energy "
+        "FROM orders "
+        "WHERE state = ? AND end_time IS NOT NULL AND end_time <> '' "
+        "  AND substr(end_time, 1, 10) BETWEEN ? AND ? "
+        "GROUP BY day"));
+    orderQ.addBindValue(static_cast<int>(cp::OrderState::Finished));
+    orderQ.addBindValue(firstDay.toString(QStringLiteral("yyyy-MM-dd")));
+    orderQ.addBindValue(today.toString(QStringLiteral("yyyy-MM-dd")));
+    if (!orderQ.exec()) {
+        if (error) *error = queryError(orderQ);
+        return false;
+    }
+
+    QHash<QString, DayOrderAgg> aggByDay;
+    while (orderQ.next()) {
+        DayOrderAgg agg;
+        agg.orders   = orderQ.value(1).toInt();
+        agg.revenue  = orderQ.value(2).toDouble();
+        agg.energyKwh = orderQ.value(3).toDouble();
+        aggByDay.insert(orderQ.value(0).toString(), agg);
+    }
+
+    snap.revenue7d.reserve(7);
+    snap.order7d.reserve(7);
+    for (int offset = 0; offset < 7; ++offset) {
+        const QDate day = firstDay.addDays(offset);
+        const QString key = day.toString(QStringLiteral("yyyy-MM-dd"));
+        const DayOrderAgg agg = aggByDay.value(key);
+        snap.revenue7d.push_back(qRound(agg.revenue * 100.0) / 100.0);
+        snap.order7d.push_back(agg.orders);
+        if (day == today) {
+            snap.todayOrders = agg.orders;
+            snap.todayRevenueYuan = qRound(agg.revenue * 100.0) / 100.0;
+            snap.todayEnergyKwh = qRound(agg.energyKwh * 100.0) / 100.0;
+        }
+    }
+
+    // 4) 近 24h 平台负荷（真实聚合优先 + 仿真兜底）与 NO.17 预测
+    QString loadError;
+    bool usedDemoFallback = false;
+    snap.load24hKw = platformHourlyLoadSamples(24, &usedDemoFallback, &loadError);
+    if (!loadError.isEmpty()) {
+        if (error) *error = loadError;
+        return false;
+    }
+    snap.loadUsedDemoFallback = usedDemoFallback;
+
+    if (!snap.load24hKw.isEmpty()) {
+        forecastHorizon = std::max(1, std::min(
+            forecastHorizon, cp::LoadForecast::kMaxHorizonHours));
+        cp::LoadForecastInput input;
+        input.historyKw = snap.load24hKw;
+        input.horizonHours = forecastHorizon;
+        input.capacityKw = snap.totalCapacityKw;
+        input.model = cp::ForecastModel::OLS;
+        const cp::LoadForecastResult result = cp::forecastLoad(input);
+
+        snap.forecastOk = result.ok;
+        snap.forecastError = result.error;
+        snap.forecastKw = result.forecastKw;
+        snap.forecastHorizon = result.forecastKw.size();
+        snap.forecastModelName = result.modelName;
+        snap.forecastTrendText = cp::loadTrendText(result.trend);
+        snap.forecastPeakKw = result.peakForecastKw;
+        snap.forecastPeakHour = result.peakHourOffset;
+        snap.forecastSamplesUsed = result.samplesUsed;
+    }
+
+    *out = snap;
+    return true;
 }
 
 bool StationStore::findPileByCode(const QString &code, PileInfo *out)

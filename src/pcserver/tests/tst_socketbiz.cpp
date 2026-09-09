@@ -5,6 +5,9 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 
 #include "common.h"
 #include "net_client.h"
@@ -242,6 +245,22 @@ void TstSocketBiz::orderReportFreesChargingPile()
     const PileInfo target = piles.first();
     QVERIFY2(store.setPileState(target.id, cp::PileState::Charging, &error),
              qPrintable(error));
+
+    // 业务规则：结算只受理“充电中”订单；按真实联调链路先建单再上报
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    QSqlQuery q(db);
+    const QStringList setup = {
+        QStringLiteral("INSERT INTO users(id,phone,nickname,balance,status) "
+                       "VALUES(1,'13800000001','结算测试用户',100,0)"),
+        QStringLiteral("INSERT INTO orders(user_id,pile_id,station_id,"
+                       "start_time,state) "
+                       "VALUES(1,%1,%2,datetime('now','-30 minutes','localtime'),0)")
+            .arg(target.id)
+            .arg(target.stationId)
+    };
+    for (const QString &statement : setup) {
+        QVERIFY2(q.exec(statement), q.lastError().text().toUtf8());
+    }
 
     MainWindow window(&store);
     cp::NetClient client;

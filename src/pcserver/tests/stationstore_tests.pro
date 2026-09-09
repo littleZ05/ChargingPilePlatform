@@ -10,10 +10,12 @@ INCLUDEPATH += $$PWD/.. $$PWD/../../common
 
 SOURCES += \
     $$PWD/tst_stationstore.cpp \
-    $$PWD/../stationstore.cpp
+    $$PWD/../stationstore.cpp \
+    $$PWD/../../common/loadforecast.cpp
 
 HEADERS += \
-    $$PWD/../stationstore.h
+    $$PWD/../stationstore.h \
+    $$PWD/../../common/loadforecast.h
 
 RESOURCES += \
     $$PWD/../pcserver.qrc
