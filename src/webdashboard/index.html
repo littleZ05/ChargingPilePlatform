@@ -102,9 +102,9 @@
     .kpi-grid {
       flex: 0 0 auto;
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       grid-template-rows: minmax(0, 1fr);
-      gap: 16px;
+      gap: 12px;
       height: clamp(132px, 15vh, 160px);
       margin-bottom: 10px;
     }
@@ -115,7 +115,7 @@
       justify-content: center;
       min-width: 0;
       min-height: 0;
-      padding: 10px 16px 10px 20px;
+      padding: 8px 12px 8px 16px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -135,9 +135,11 @@
     .kpi-card--health::before { background: #10b981; }
     .kpi-card--load::before   { background: #0ea5e9; }
     .kpi-card--danger::before { background: #ef4444; }
+    .kpi-card--revenue::before { background: #f59e0b; }
+    .kpi-card--forecast::before { background: #8b5cf6; }
 
     .kpi-label {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 600;
       letter-spacing: 0.5px;
       line-height: 1.3;
@@ -161,7 +163,7 @@
     }
     .kpi-value {
       font-family: "Bahnschrift", "DIN Alternate", "Segoe UI", "PingFang SC", sans-serif;
-      font-size: clamp(56px, 4.8vw, 60px);
+      font-size: clamp(38px, 2.9vw, 50px);
       font-weight: 800;
       line-height: 1.0;
       white-space: nowrap;
@@ -169,6 +171,7 @@
       font-variant-numeric: tabular-nums;
     }
     .kpi-card--danger .kpi-value { color: var(--red); }
+    .kpi-card--forecast .kpi-value { color: #7c3aed; }
     .kpi-unit {
       font-size: 16px;
       font-weight: 600;
@@ -179,7 +182,7 @@
       flex: 1 1 auto;
       min-width: 0;
       margin-top: 0;
-      font-size: 14px;
+      font-size: 13px;
       line-height: 1.2;
       color: var(--muted);
       letter-spacing: 0.1px;
@@ -262,6 +265,14 @@
     ::-webkit-scrollbar-track { background: #f1f5f9; }
 
     /* ---------------- 自适应断点 ---------------- */
+    @media (max-width: 1500px) {
+      .kpi-grid {
+        height: auto;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-rows: repeat(2, 132px);
+      }
+    }
+
     @media (max-width: 1240px) {
       .chart-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -276,7 +287,7 @@
       .kpi-grid {
         height: auto;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-rows: repeat(2, 132px);
+        grid-template-rows: repeat(3, 132px);
       }
     }
 
@@ -305,7 +316,7 @@
     @media (max-width: 560px) {
       .kpi-grid {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: repeat(4, 132px);
+        grid-template-rows: repeat(6, 132px);
       }
       .chart-host { height: 300px; }
     }
@@ -330,10 +341,10 @@
           <div class="kpi-label">设备规模</div>
           <div class="kpi-main">
             <div class="kpi-value-row">
-              <span class="kpi-value" data-count="128" data-decimals="0">0</span>
+              <span class="kpi-value" id="kpiTotalValue" data-count="128" data-decimals="0">0</span>
               <span class="kpi-unit">台</span>
             </div>
-            <div class="kpi-sub">已接入全部充电站点</div>
+            <div class="kpi-sub" id="kpiSubTotal">已接入全部充电站点</div>
           </div>
         </article>
 
@@ -341,32 +352,54 @@
           <div class="kpi-label">实时健康率</div>
           <div class="kpi-main">
             <div class="kpi-value-row">
-              <span class="kpi-value" data-count="96.9" data-decimals="1">0</span>
+              <span class="kpi-value" id="kpiHealthValue" data-count="96.9" data-decimals="1">0</span>
               <span class="kpi-unit">%</span>
             </div>
-            <div class="kpi-sub">健康桩 124 / 128</div>
-          </div>
-        </article>
-
-        <article class="kpi-card kpi-card--load">
-          <div class="kpi-label">今日负荷</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" data-count="3842" data-decimals="0">0</span>
-              <span class="kpi-unit">kWh</span>
-            </div>
-            <div class="kpi-sub">峰值 19:00 · 860 kW</div>
+            <div class="kpi-sub" id="kpiSubHealth">健康桩 124 / 128</div>
           </div>
         </article>
 
         <article class="kpi-card kpi-card--danger">
-          <div class="kpi-label">异常自愈</div>
+          <div class="kpi-label">异常/待检修</div>
           <div class="kpi-main">
             <div class="kpi-value-row">
-              <span class="kpi-value" data-count="4" data-decimals="0">0</span>
+              <span class="kpi-value" id="kpiFaultValue" data-count="4" data-decimals="0">0</span>
               <span class="kpi-unit">台</span>
             </div>
-            <div class="kpi-sub">待检修队列，需优先处理</div>
+            <div class="kpi-sub" id="kpiSubFault">故障桩 state=2 · 待自愈/检修</div>
+          </div>
+        </article>
+
+        <article class="kpi-card kpi-card--revenue">
+          <div class="kpi-label">今日营收</div>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" id="kpiRevenueValue" data-count="0" data-decimals="0">0</span>
+              <span class="kpi-unit">元</span>
+            </div>
+            <div class="kpi-sub" id="kpiSubRevenue">今日已完成 0 单</div>
+          </div>
+        </article>
+
+        <article class="kpi-card kpi-card--load">
+          <div class="kpi-label">实时总负荷</div>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" id="kpiLoadValue" data-count="0" data-decimals="0">0</span>
+              <span class="kpi-unit">kW</span>
+            </div>
+            <div class="kpi-sub" id="kpiSubLoad">今日累计用电 0 kWh</div>
+          </div>
+        </article>
+
+        <article class="kpi-card kpi-card--forecast">
+          <div class="kpi-label">未来 6h 预测峰值</div>
+          <div class="kpi-main">
+            <div class="kpi-value-row">
+              <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
+              <span class="kpi-unit">kW</span>
+            </div>
+            <div class="kpi-sub" id="kpiSubForecast">NO.17 OLS · 趋势 --</div>
           </div>
         </article>
       </section>
@@ -384,11 +417,11 @@
           </div>
         </article>
 
-        <!-- 图表 2：当日 24 小时充电功率负荷趋势 -->
+        <!-- 图表 2：近24h 滚动负荷（真实聚合优先） + 未来6h OLS 预测 -->
         <article class="panel panel--load">
           <header class="panel-head">
-            <h2 class="panel-title">当日 24 小时充电功率负荷趋势</h2>
-            <span class="panel-note">00:00 – 24:00 · 单位 kW</span>
+            <h2 class="panel-title">近24小时充电负荷与未来6小时预测</h2>
+            <span class="panel-note">蓝实线=历史实测 · 橙虚线=预测 · 单位 kW</span>
           </header>
           <div class="panel-body">
             <div id="chartLoad24h" class="chart-host"></div>
@@ -410,7 +443,7 @@
 
     <footer class="footer">
       <span>© 2026 电动汽车充电桩应用管理平台 · Web 业务健康度看板</span>
-      <span>数据快照：<b id="lastUpdated">--</b> · 当前为离线演示样例，接口接入点见脚本顶部 DATA_BACKEND 注释</span>
+      <span>数据快照：<b id="lastUpdated">--</b> · 数据源：<b id="dataSource">离线演示样例</b></span>
     </footer>
   </div>
 
@@ -421,39 +454,44 @@
       /* =====================================================================
        * 数据接入说明
        * ---------------------------------------------------------------------
-       * 当前文件为离线演示快照，全部数值集中在下方 DEMO 常量中，便于大屏联调。
-       * 接入真实服务端时，只需两步：
-       *   1) 将 DATA_BACKEND 设为后端地址，例如 '/api/dashboard/overview'；
-       *   2) 在 boot() 中改为 fetch(DATA_BACKEND).then(r => r.json())，
-       *      将响应字段映射为 DEMO 结构（kpi / pileStates / load24h / revenue7d）
-       *      后继续调用各 render 函数即可，页面结构与图表逻辑无需改动。
-       * 建议后端返回结构：
-       *   {
-       *     kpi:        { totalPiles, healthRate, todayLoadKwh, pendingRepair },
-       *     pileStates: [{ state: 0|1|2, value }],
-       *     load24h:    [0时..23时/24时 共25个负荷点, 单位kW],
-       *     revenue7d:  [近7日每日营收(元), 日期由近到远],
-       *     order7d:    [近7日每日订单数]
-       *   }
+       * NO.16 后端动态注入：
+       * - PcServer 启动后在本机提供只读 JSON 聚合接口：
+       *     GET http://127.0.0.1:8890/api/dashboard/overview
+       *   响应 envelope：{ code, message, ts, data }，data 结构与下方
+       *   updateDashboardData 的入参一致（snake_case，见 normalizeDashboardData）。
+       * - file:// 页面可跨源 fetch（服务端已返回 Access-Control-Allow-Origin:*）；
+       * - 服务不可达时自动保留最近快照 / 离线演示数据并打标，页面不崩溃；
+       * - 对外暴露 window.updateDashboardData(data)，便于后续 WebChannel 等通道接入。
        * ===================================================================== */
-      var DATA_BACKEND = null; // 例如：'/api/dashboard/overview'
+      var DATA_BACKEND = 'http://127.0.0.1:8890/api/dashboard/overview';
+      var REFRESH_MS = 10000;       // 大屏数据轮询间隔
+      var FETCH_TIMEOUT_MS = 4000;  // 单次请求超时
 
+      // 离线兜底快照：首屏 / 服务未连接时显示，接入后由真实数据替换
       var DEMO = {
         kpi: {
-          totalPiles:    128,   // 总电桩规模（台）
-          healthRate:    96.9,  // 实时健康率（%）≈ (128-4)/128
-          todayLoadKwh:  3842,  // 今日充电负荷总量（kWh）
-          pendingRepair: 4      // 自愈告警 / 待检修桩数（台），即 state=2
+          totalPiles: 128,        // 总电桩规模（台）
+          idlePiles: 74,          // 闲置
+          chargingPiles: 50,      // 充电中
+          faultPiles: 4,          // 故障/待检修
+          onlineRate: 96.9,       // 实时健康率（%）≈ (128-4)/128
+          currentLoadKw: 810,     // 实时总负荷（kW）
+          todayRevenueYuan: 6480, // 今日营收（元）
+          todayOrders: 138,       // 今日已完成订单数
+          todayEnergyKwh: 3842,   // 今日累计用电（kWh）
+          forecastPeakKw: 860,    // 未来 6h 预测峰值
+          forecastHorizon: 6,
+          forecastTrend: '上升'
         },
-        pileStates: [ // piles.state：0 闲置空闲 / 1 充电使用中 / 2 异常待自愈
+        pileStates: [  // piles.state：0 闲置空闲 / 1 充电使用中 / 2 异常待自愈
           { state: 0, name: '闲置空闲 (0)',   value: 74 },
           { state: 1, name: '充电使用中 (1)', value: 50 },
           { state: 2, name: '异常/待自愈 (2)', value: 4 }
         ],
-        // 24 小时瞬时负荷（kW），00:00 ~ 24:00 共 25 个整点采样点
-        load24h: [190, 130, 105, 85, 95, 175, 275, 430, 570, 650,
-                  690, 705, 695, 655, 620, 605, 645, 725, 800, 860,
-                  825, 705, 525, 335, 195],
+        // 演示日负荷曲线（00:00 ~ 24:00，25 点兼容展示）
+        load24hKw: [190, 130, 105, 85, 95, 175, 275, 430, 570, 650,
+                    690, 705, 695, 655, 620, 605, 645, 725, 800, 860,
+                    825, 705, 525, 335, 195],
         // 近 7 日（由近到远）：每日总营收（元）与已完成订单数
         revenue7d: [6480, 5920, 6100, 5580, 4710, 5230, 4860],
         order7d:   [138, 121, 132, 118, 92, 105, 96]
@@ -470,12 +508,22 @@
         faint:  '#94a3b8',
         grid:   '#e2e8f0',
         axis:   '#cbd5e1',
+        violet: '#8b5cf6',
         tooltipBg: '#ffffff',
         tooltipBorder: '#e2e8f0'
       };
 
       var echarts = window.echarts;
       var instances = [];
+      var chartCache = {};
+
+      /* 当前渲染快照：接入后端后由 updateDashboardData 覆盖，否则保留离线 DEMO */
+      var SNAPSHOT = null;
+      var SERVER_LIVE = false;   // 是否成功接入过后端聚合数据
+      function cloneDemo() {
+        return JSON.parse(JSON.stringify(DEMO));
+      }
+      SNAPSHOT = cloneDemo();
 
       function $(id) { return document.getElementById(id); }
       function pad2(n) { return n < 10 ? '0' + n : String(n); }
@@ -489,9 +537,6 @@
           ' ' + WEEK[now.getDay()];
         $('clockTime').textContent =
           pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
-        $('lastUpdated').textContent =
-          now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate()) +
-          ' ' + pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
       }
 
       /* ---------------- 工具函数 ---------------- */
@@ -503,10 +548,38 @@
         });
       }
 
+      function toNumber(value, fallback) {
+        if (fallback === undefined) { fallback = 0; }
+        var v = Number(value);
+        return isFinite(v) ? v : fallback;
+      }
+
       function initChart(hostId) {
+        if (chartCache[hostId]) {
+          return chartCache[hostId];
+        }
         var instance = echarts.init($(hostId), null, { renderer: 'canvas' });
+        chartCache[hostId] = instance;
         instances.push(instance);
         return instance;
+      }
+
+      function setSnapshotTime(text) {
+        if ($('lastUpdated')) {
+          $('lastUpdated').textContent = text || '--';
+        }
+      }
+
+      function setDataSource(text) {
+        if ($('dataSource')) {
+          $('dataSource').textContent = text || '--';
+        }
+      }
+
+      function nowText() {
+        var now = new Date();
+        return now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate()) +
+               ' ' + pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
       }
 
       function chartTooltipStyle() {
@@ -541,32 +614,72 @@
         window.requestAnimationFrame(step);
       }
 
-      function renderKpi() {
+      function renderValue(id, value, decimals) {
+        var node = $(id);
+        if (!node) { return; }
+        var target = toNumber(value, NaN);
+        if (!isFinite(target)) {
+          node.textContent = '--';
+          return;
+        }
+        var dec = parseInt(decimals || '0', 10);
+        node.setAttribute('data-count', target);
+        node.setAttribute('data-decimals', dec);
         var reduced = window.matchMedia &&
                       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        Array.prototype.forEach.call(
-          document.querySelectorAll('[data-count]'),
-          function (node) {
-            var target = parseFloat(node.getAttribute('data-count'));
-            var decimals = parseInt(node.getAttribute('data-decimals') || '0', 10);
-            if (reduced) {
-              node.textContent = fmtNumber(target, decimals);
-            } else {
-              animateNumber(node, target, decimals);
-            }
-          }
-        );
+        if (reduced) {
+          node.textContent = fmtNumber(target, dec);
+        } else {
+          animateNumber(node, target, dec);
+        }
+      }
+
+      function renderKpi() {
+        var k = SNAPSHOT.kpi || {};
+        var total = toNumber(k.totalPiles);
+        var idle = toNumber(k.idlePiles);
+        var charging = toNumber(k.chargingPiles);
+        var fault = toNumber(k.faultPiles);
+        var online = total - fault;
+        var trend = k.forecastTrend || '--';
+        var horizon = toNumber(k.forecastHorizon, 6);
+
+        renderValue('kpiTotalValue', total, 0);
+        renderValue('kpiHealthValue', k.onlineRate, 1);
+        renderValue('kpiFaultValue', fault, 0);
+        renderValue('kpiRevenueValue', k.todayRevenueYuan, 0);
+        renderValue('kpiLoadValue', k.currentLoadKw, 0);
+        renderValue('kpiForecastValue',
+                    k.forecastPeakKw === undefined ? NaN : k.forecastPeakKw, 0);
+
+        $('kpiSubTotal').textContent = '在线 ' + online + ' 台 · 充电中 ' + charging + ' 台';
+        $('kpiSubHealth').textContent =
+          total > 0 ? '健康桩 ' + online + ' / ' + total + ' 台'
+                    : '暂无电桩接入';
+        $('kpiSubFault').textContent =
+          fault > 0 ? '故障桩 ' + fault + ' 台 · 待自愈/检修'
+                    : '当前无故障桩，运行良好';
+        $('kpiSubRevenue').textContent =
+          '今日已完成 ' + toNumber(k.todayOrders) + ' 单';
+        $('kpiSubLoad').textContent =
+          '今日累计用电 ' + fmtNumber(toNumber(k.todayEnergyKwh), 0) + ' kWh';
+        var model = (SNAPSHOT.forecast && SNAPSHOT.forecast.model)
+                    ? SNAPSHOT.forecast.model : '';
+        if (model.indexOf('OLS') >= 0) { model = 'OLS'; }
+        else if (model.indexOf('WMA') >= 0) { model = 'WMA'; }
+        $('kpiSubForecast').textContent =
+          '未来 ' + horizon + 'h' + (model ? ' · ' + model : '') + ' · 趋势 ' + trend;
       }
 
       /* ---------------- 图表 1：电桩实时运行状态分布（环形） ---------------- */
       function renderPileState() {
         var chart = initChart('chartPileState');
-        var total = DEMO.kpi.totalPiles;
+        var total = toNumber(SNAPSHOT.kpi.totalPiles);
         var colorMap = { 0: PALETTE.green, 1: PALETTE.blue, 2: PALETTE.red };
-        var seriesData = DEMO.pileStates.map(function (item) {
+        var seriesData = (SNAPSHOT.pileStates || []).map(function (item) {
           return {
             name: item.name,
-            value: item.value,
+            value: toNumber(item.value),
             itemStyle: { color: colorMap[item.state] }
           };
         });
@@ -588,12 +701,12 @@
             itemGap: 24,
             textStyle: chartTextStyle(PALETTE.muted, 14),
             formatter: function (name) {
-              var hit = DEMO.pileStates.filter(function (item) {
+              var hit = (SNAPSHOT.pileStates || []).filter(function (item) {
                 return item.name === name;
               })[0];
               if (!hit) { return name; }
               var short = name.replace(/\s*\([0-9]+\)$/, '');
-              return short + '  ' + hit.value + ' 台';
+              return short + '  ' + toNumber(hit.value) + ' 台';
             }
           },
           series: [{
@@ -635,17 +748,120 @@
         });
       }
 
-      /* ---------------- 图表 2：当日 24 小时充电功率负荷（渐变面积） ---------------- */
+      /* ---------------- 图表 2：近24h 滚动负荷 + 未来 6h 预测 ---------------- */
+      function rollingTimeLabels(count) {
+        var labels = [];
+        var now = new Date();
+        var offset;
+        if (count === 25) {  // 离线演示日曲线兼容：00:00 ~ 24:00
+          for (offset = 0; offset <= 24; offset++) {
+            labels.push(pad2(offset) + ':00');
+          }
+          return labels;
+        }
+        for (offset = 0; offset < count; offset++) {
+          var d = new Date(now.getTime() - (count - 1 - offset) * 3600000);
+          var hh = pad2(d.getHours()) + ':00';
+          var isToday = d.toDateString() === now.toDateString();
+          labels.push(isToday
+                      ? hh
+                      : pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + hh);
+        }
+        return labels;
+      }
+
+      function futureTimeLabels(count) {
+        var labels = [];
+        var now = new Date();
+        for (var i = 1; i <= count; i++) {
+          var d = new Date(now.getTime() + i * 3600000);
+          var hh = pad2(d.getHours()) + ':00';
+          var isToday = d.toDateString() === now.toDateString();
+          labels.push(isToday
+                      ? hh
+                      : pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + hh);
+        }
+        return labels;
+      }
+
+      function niceStep(value) {
+        var raw = Math.max(1, Number(value) || 1);
+        var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+        var steps = [1, 2, 5, 10];
+        for (var i = 0; i < steps.length; i++) {
+          if (raw <= mag * steps[i]) { return mag * steps[i]; }
+        }
+        return mag * 10;
+      }
+
       function renderLoad24h() {
         var chart = initChart('chartLoad24h');
-        var hours = [];
-        var h;
-        for (h = 0; h <= 24; h++) { hours.push(pad2(h) + ':00'); }
+        var history = (SNAPSHOT.load24hKw || []).map(function (v) { return toNumber(v); });
+        if (!history.length) {
+          history = (DEMO.load24hKw || []).map(function (v) { return toNumber(v); });
+        }
+        var fc = SNAPSHOT.forecast;
+        var forecast = (fc && Array.isArray(fc.kw))
+                       ? fc.kw.map(function (v) { return toNumber(v); })
+                       : [];
 
-        var values = DEMO.load24h;
+        var histTimes = rollingTimeLabels(history.length);
+        var fcTimes = futureTimeLabels(forecast.length);
+        var allTimes = histTimes.concat(fcTimes);
+        var nulls = function (n) {
+          var arr = [];
+          for (var i = 0; i < n; i++) { arr.push(null); }
+          return arr;
+        };
+        var histData = history.concat(nulls(forecast.length));
+        var fcData = nulls(history.length).concat(forecast);
+
         var peakValue = 0;
-        for (h = 0; h < values.length; h++) {
-          if (values[h] > peakValue) { peakValue = values[h]; }
+        history.forEach(function (v) { if (v > peakValue) { peakValue = v; } });
+        forecast.forEach(function (v) { if (v > peakValue) { peakValue = v; } });
+        var interval = niceStep(Math.max(50, peakValue) / 5);
+        var yMax = interval * 5;
+
+        var series = [{
+          name: '历史实测负荷',
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          data: histData,
+          lineStyle: { width: 3, color: PALETTE.blue },
+          itemStyle: { color: PALETTE.blue },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(37, 99, 235, 0.18)' },
+              { offset: 0.55, color: 'rgba(37, 99, 235, 0.05)' },
+              { offset: 1, color: 'rgba(37, 99, 235, 0)' }
+            ])
+          },
+          markPoint: {
+            symbol: 'pin',
+            symbolSize: 46,
+            silent: true,
+            itemStyle: { color: PALETTE.amber },
+            label: {
+              color: '#ffffff',
+              fontWeight: 700,
+              fontSize: 13,
+              formatter: function () { return peakValue + ' kW'; }
+            },
+            data: [{ type: 'max', name: '峰值' }]
+          }
+        }];
+        if (forecast.length) {
+          series.push({
+            name: '未来预测',
+            type: 'line',
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            data: fcData,
+            lineStyle: { width: 3, color: PALETTE.amber, type: 'dashed' },
+            itemStyle: { color: PALETTE.amber, borderColor: '#ffffff', borderWidth: 2 }
+          });
         }
 
         chart.setOption({
@@ -658,24 +874,38 @@
               label: { backgroundColor: '#334155', color: '#ffffff', fontSize: 13 }
             },
             formatter: function (params) {
-              var p = params[0];
-              return '<b>' + p.axisValue + '</b><br/>' +
-                     '负荷功率：<b>' + p.value + '</b> kW';
+              var lines = ['<b>' + params[0].axisValue + '</b>'];
+              params.forEach(function (p) {
+                if (p.value === null || p.value === undefined) { return; }
+                lines.push(p.marker + p.seriesName + '：<b>' + p.value + '</b> kW');
+              });
+              return lines.join('<br/>');
             }
           }),
-          grid: { left: 74, right: 34, top: 44, bottom: 42 },
+          legend: {
+            top: 4,
+            right: 10,
+            icon: 'roundRect',
+            itemWidth: 16,
+            itemHeight: 10,
+            itemGap: 20,
+            textStyle: chartTextStyle(PALETTE.muted, 13),
+            data: series.map(function (s) { return s.name; })
+          },
+          grid: { left: 74, right: 34, top: 46, bottom: 42 },
           xAxis: {
             type: 'category',
             boundaryGap: false,
-            data: hours,
+            data: allTimes,
             axisLine: { lineStyle: { color: PALETTE.axis } },
             axisTick: { show: false },
             axisLabel: {
               interval: function (index) {
-                return index % 3 === 0 || index === hours.length - 1;
+                var step = Math.max(1, Math.floor(allTimes.length / 8));
+                return index % step === 0 || index === allTimes.length - 1;
               },
               color: PALETTE.muted,
-              fontSize: 14
+              fontSize: 13
             }
           },
           yAxis: {
@@ -683,40 +913,12 @@
             name: '功率 (kW)',
             nameTextStyle: chartTextStyle(PALETTE.muted, 13),
             min: 0,
-            max: 1000,
-            interval: 200,
-            axisLabel: { color: PALETTE.muted, fontSize: 14 },
+            max: yMax,
+            interval: interval,
+            axisLabel: { color: PALETTE.muted, fontSize: 13 },
             splitLine: { lineStyle: { color: PALETTE.grid, type: 'dashed' } }
           },
-          series: [{
-            name: '充电负荷',
-            type: 'line',
-            smooth: true,
-            symbol: 'none',
-            data: values,
-            lineStyle: { width: 3, color: PALETTE.blue },
-            itemStyle: { color: PALETTE.blue },
-            areaStyle: {
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(37, 99, 235, 0.18)' },
-                { offset: 0.55, color: 'rgba(37, 99, 235, 0.05)' },
-                { offset: 1, color: 'rgba(37, 99, 235, 0)' }
-              ])
-            },
-            markPoint: {
-              symbol: 'pin',
-              symbolSize: 50,
-              silent: true,
-              itemStyle: { color: PALETTE.amber },
-              label: {
-                color: '#ffffff',
-                fontWeight: 700,
-                fontSize: 13,
-                formatter: function () { return peakValue + ' kW'; }
-              },
-              data: [{ type: 'max', name: '峰值' }]
-            }
-          }]
+          series: series
         });
       }
 
@@ -734,9 +936,15 @@
 
       function renderRevenue7d() {
         var chart = initChart('chartRevenue7d');
-        var days = last7DayLabels();
-        var revenue = DEMO.revenue7d;
-        var orders = DEMO.order7d;
+        var days = (SNAPSHOT.days && SNAPSHOT.days.length === 7)
+                   ? SNAPSHOT.days
+                   : last7DayLabels();
+        var revenue = (SNAPSHOT.revenue7d && SNAPSHOT.revenue7d.length)
+                      ? SNAPSHOT.revenue7d
+                      : DEMO.revenue7d;
+        var orders = (SNAPSHOT.order7d && SNAPSHOT.order7d.length)
+                     ? SNAPSHOT.order7d
+                     : DEMO.order7d;
 
         chart.setOption({
           tooltip: Object.assign(chartTooltipStyle(), {
@@ -854,7 +1062,173 @@
         }, 120);
       });
 
-      /* ---------------- 启动 ---------------- */
+      /* ---------------- 数据归一化与后端轮询（NO.16） ---------------- */
+      function numField(obj, keys, fallback) {
+        for (var i = 0; i < keys.length; i++) {
+          if (obj && obj[keys[i]] !== undefined) {
+            return obj[keys[i]];
+          }
+        }
+        return fallback;
+      }
+
+      function stateName(state) {
+        var names = {
+          0: '闲置空闲 (0)',
+          1: '充电使用中 (1)',
+          2: '异常/待自愈 (2)'
+        };
+        return names[state] || ('状态 ' + state);
+      }
+
+      function normalizeDashboardData(raw) {
+        var src = raw || {};
+        if (src.data && typeof src.data === 'object') {
+          src = src.data;  // 兼容 {code,message,ts,data} envelope
+        }
+        var kpi = src.kpi || {};
+
+        var total = toNumber(numField(kpi, ['total_piles', 'totalPiles']));
+        var idle = toNumber(numField(kpi, ['idle_piles', 'idlePiles']));
+        var charging = toNumber(numField(kpi, ['charging_piles', 'chargingPiles']));
+        var fault = toNumber(numField(kpi, ['fault_piles', 'faultPiles']));
+        var onlineRate = toNumber(numField(kpi, ['online_rate', 'onlineRate', 'healthRate']));
+
+        var forecastRaw = src.forecast || null;
+        var forecastTrend =
+          (forecastRaw && (forecastRaw.trend || forecastRaw.trendText)) ||
+          numField(kpi, ['forecast_trend', 'forecastTrend'], '--');
+        var forecastHorizon = toNumber(
+          numField(kpi, ['forecast_horizon', 'forecastHorizon'],
+                   forecastRaw ? forecastRaw.horizon : 6), 6);
+
+        var pileStates;
+        var srcStates = Array.isArray(src.pile_states)
+                        ? src.pile_states
+                        : (Array.isArray(src.pileStates) ? src.pileStates : null);
+        if (srcStates && srcStates.length) {
+          pileStates = srcStates.map(function (item) {
+            return {
+              state: toNumber(item.state, 0),
+              name: item.name || stateName(item.state),
+              value: toNumber(item.value)
+            };
+          });
+        } else {
+          if (total > 0 && idle + charging + fault === 0) {
+            idle = total;  // 防御：服务端未带分状态时至少展示全部闲置
+          }
+          if (total > 0 && onlineRate <= 0) {
+            onlineRate = Math.round((total - fault) / total * 1000) / 10;
+          }
+          pileStates = [
+            { state: 0, name: stateName(0), value: idle },
+            { state: 1, name: stateName(1), value: charging },
+            { state: 2, name: stateName(2), value: fault }
+          ];
+        }
+
+        var loadRaw = Array.isArray(src.load24h_kw) ? src.load24h_kw
+                    : (Array.isArray(src.load24hKw) ? src.load24hKw : []);
+        var next = {
+          ts: src.ts || '',
+          days: Array.isArray(src.days) ? src.days : [],
+          meta: src.meta || {},
+          kpi: {
+            totalPiles: total,
+            idlePiles: idle,
+            chargingPiles: charging,
+            faultPiles: fault,
+            onlineRate: onlineRate,
+            totalCapacityKw: toNumber(
+              numField(kpi, ['total_capacity_kw', 'totalCapacityKw'])),
+            currentLoadKw: toNumber(
+              numField(kpi, ['current_load_kw', 'currentLoadKw'])),
+            todayRevenueYuan: toNumber(
+              numField(kpi, ['today_revenue_yuan', 'todayRevenueYuan'])),
+            todayOrders: toNumber(
+              numField(kpi, ['today_orders', 'todayOrders'])),
+            todayEnergyKwh: toNumber(
+              numField(kpi, ['today_energy_kwh', 'todayEnergyKwh'])),
+            forecastPeakKw: toNumber(
+              numField(kpi, ['forecast_peak_kw', 'forecastPeakKw'])),
+            forecastHorizon: forecastHorizon,
+            forecastTrend: forecastTrend
+          },
+          pileStates: pileStates,
+          load24hKw: loadRaw.length ? loadRaw : (DEMO.load24hKw || []),
+          forecast: forecastRaw ? {
+            ok: !!forecastRaw.ok,
+            kw: Array.isArray(forecastRaw.kw) ? forecastRaw.kw : [],
+            model: forecastRaw.model || forecastRaw.modelName || '',
+            trend: forecastTrend,
+            peak_kw: toNumber(numField(forecastRaw, ['peak_kw', 'peakKw'])),
+            horizon: toNumber(numField(forecastRaw, ['horizon', 'horizonHours']),
+                              forecastHorizon)
+          } : null,
+          revenue7d: Array.isArray(src.revenue7d) ? src.revenue7d : [],
+          order7d: Array.isArray(src.order7d) ? src.order7d : []
+        };
+        return next;
+      }
+
+      function renderAllCharts() {
+        renderKpi();
+        renderPileState();
+        renderLoad24h();
+        renderRevenue7d();
+      }
+
+      /**
+       * 标准数据更新入口：接收后端聚合数据（envelope 或裸 data 均可），
+       * 归一化后驱动各 ECharts 实例重绘。WebChannel / runJavaScript 亦可直接调用。
+       */
+      function updateDashboardData(raw) {
+        SNAPSHOT = normalizeDashboardData(raw);
+        if (!SNAPSHOT.ts && raw && raw.ts) {
+          SNAPSHOT.ts = raw.ts;  // envelope 的 ts 在 data 外层
+        }
+        SERVER_LIVE = true;
+        setSnapshotTime(SNAPSHOT.ts || nowText());
+        renderAllCharts();
+        return true;
+      }
+      window.updateDashboardData = updateDashboardData;
+
+      function fetchDashboardOnce() {
+        if (!DATA_BACKEND) {
+          setDataSource('未配置后端地址');
+          return;
+        }
+        var controller = new AbortController();
+        var timer = window.setTimeout(function () { controller.abort(); },
+                                      FETCH_TIMEOUT_MS);
+        fetch(DATA_BACKEND, { cache: 'no-store', signal: controller.signal })
+          .then(function (response) {
+            if (!response.ok) {
+              throw new Error('HTTP ' + response.status);
+            }
+            return response.json();
+          })
+          .then(function (payload) {
+            window.clearTimeout(timer);
+            if (!payload || (typeof payload.code === 'number' && payload.code !== 0)) {
+              throw new Error('聚合接口返回异常');
+            }
+            updateDashboardData(payload);
+            var meta = payload.data && payload.data.meta;
+            setDataSource(meta && meta.load_demo_fallback
+                          ? 'SQLite 实时聚合 · 24h 负荷演示兜底'
+                          : 'SQLite 实时聚合');
+          })
+          .catch(function () {
+            window.clearTimeout(timer);
+            setDataSource(SERVER_LIVE
+                          ? '服务连接中断 · 显示最近快照'
+                          : 'PcServer 未连接 · 离线演示数据');
+          });
+      }
+
       function boot() {
         if (!window.echarts) {
           var hosts = document.querySelectorAll('.chart-host');
@@ -866,23 +1240,11 @@
         }
         refreshClock();
         window.setInterval(refreshClock, 1000);
-        renderKpi();
-        renderPileState();
-        renderLoad24h();
-        renderRevenue7d();
-
-        // 后端联调入口：取消下行注释并替换 DATA_BACKEND 后即可接入实时数据
-        // fetch(DATA_BACKEND).then(function (r) { return r.json(); }).then(function (res) {
-        //   DEMO.kpi = res.kpi;
-        //   DEMO.pileStates = res.pileStates;
-        //   DEMO.load24h = res.load24h;
-        //   DEMO.revenue7d = res.revenue7d;
-        //   DEMO.order7d = res.order7d;
-        //   renderKpi();
-        //   renderPileState();
-        //   renderLoad24h();
-        //   renderRevenue7d();
-        // });
+        setSnapshotTime(nowText());
+        setDataSource('PcServer 未连接 · 离线演示数据');
+        renderAllCharts();
+        fetchDashboardOnce();
+        window.setInterval(fetchDashboardOnce, REFRESH_MS);
       }
 
       boot();

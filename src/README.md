@@ -14,7 +14,7 @@ src/
 ├── userclient/                # 充电用户端（Linux+Qt，负责人：葛伊诺 geyinuo）
 ├── pcserver/                  # PC 服务器端（Linux+Qt，负责人：毛悦琮、陈庚泉）
 ├── database/                  # 数据库：schema.sql 建表脚本 + 设计说明（负责人：陈庚泉）
-├── webdashboard/              # 大数据可视化大屏（Web+ECharts，负责人：吴羽桐）
+├── webdashboard/              # 大数据可视化大屏（Web+ECharts，负责人：吴羽桐；NO.16 动态接入 PcServer 8890 只读聚合接口）
 └── innovation_demo/           # 创新点1/2 模拟触发演示（组长：价格策略/自愈检查，答辩前接 ML 输入）
 ```
 

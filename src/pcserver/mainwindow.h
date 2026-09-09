@@ -10,6 +10,7 @@
 
 namespace Ui { class MainWindow; }
 class QTcpSocket;
+namespace pcserver { class DashboardApiServer; }
 
 namespace pcserver {
 
@@ -41,6 +42,7 @@ private:
     void buildUi();
     void refreshAll();
     void startSocketServer();
+    void startDashboardServer();
     void sendSocketReply(QTcpSocket *client, quint16 msgType,
                          const QJsonObject &payload);
     void handleHeartbeatPacket(QTcpSocket *client, const QByteArray &body);
