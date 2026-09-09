@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include "station.h"
+#include "pcserver_session.h"
 
 class QListWidget;
 class QLineEdit;
@@ -18,6 +19,8 @@ class StationPage : public QWidget
     Q_OBJECT
 public:
     explicit StationPage(QWidget *parent = nullptr);
+    /** NO.4 联调：用服务器电站列表替换（为空/失败时回退腾讯 POI 逻辑） */
+    void applyServerStations(const QVector<userclient::ServerStation> &stations);
 
 signals:
     void stationSelected(const Station &station);

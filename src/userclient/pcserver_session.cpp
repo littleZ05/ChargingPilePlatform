@@ -446,6 +446,8 @@ void PcServerSession::handleStationQueryPacket(const QByteArray &body)
             station.onlineRate  = object.value(QStringLiteral("online_rate")).toDouble();
             station.basePrice   = object.value(QStringLiteral("base_price")).toDouble();
             station.price       = object.value(QStringLiteral("price")).toDouble();
+            station.discount    = object.value(QStringLiteral("discount")).toDouble(1.0);
+            station.onSale      = object.value(QStringLiteral("is_discount")).toBool(false);
             stations.append(station);
         }
     }

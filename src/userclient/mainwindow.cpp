@@ -67,12 +67,36 @@ MainWindow::MainWindow(QWidget *parent)
                 if (connected) {
                     qInfo().noquote()
                         << QStringLiteral("[net] 用户端已连接 PcServer");
+                    if (!m_pendingLoginPhone.isEmpty()) {
+                        m_serverSession->login(m_pendingLoginPhone);
+                        m_serverSession->queryStations();
+                        m_pendingLoginPhone.clear();
+                    }
                 } else {
                     qWarning().noquote()
                         << QStringLiteral("[net] PcServer 连接已断开，进入退避重连");
                 }
             });
     m_serverSession->start();
+    // NO.6/NO.4：登录回执刷新个人页；服务器电站列表接入首页
+    connect(m_serverSession, &userclient::PcServerSession::loginResult,
+            this, [this](int code, const QString &, const QString &,
+                         const QString &nickname, double balance, bool created) {
+                if (code == 0) {
+                    m_profilePage->setUserInfo(nickname, balance);
+                    statusBar()->showMessage(
+                        created ? QStringLiteral("新用户已自动注册并登录")
+                                : QStringLiteral("登录成功"),
+                        3000);
+                }
+            });
+    connect(m_serverSession,
+            &userclient::PcServerSession::stationListReceived,
+            this, [this](int code, const QString &,
+                         const QVector<userclient::ServerStation> &stations) {
+                if (code == 0)
+                    m_stationPage->applyServerStations(stations);
+            });
 
     // NO.7：充电详情页结算触发点接入应用级会话
     m_detailPage->setServerSession(m_serverSession);
@@ -132,6 +156,12 @@ void MainWindow::setupMainPage()
 void MainWindow::showMain(const QString &phone)
 {
     m_profilePage->setPhone(phone);
+    if (m_serverSession->isConnected()) {
+        m_serverSession->login(phone);
+        m_serverSession->queryStations();
+    } else {
+        m_pendingLoginPhone = phone;
+    }
     m_root->setCurrentIndex(1);
     showTab(0);
     m_navGroup->button(0)->setChecked(true);

@@ -27,6 +27,8 @@ struct ServerStation {
     double  onlineRate   = 0.0;
     double  basePrice    = 0.0;
     double  price        = 0.0;
+    double  discount     = 1.0;
+    bool    onSale       = false;
 };
 
 /**

@@ -147,6 +147,17 @@ void ProfilePage::setPhone(const QString &phone)
     m_phoneLabel->setText(m_phone);
 }
 
+void ProfilePage::setUserInfo(const QString &nickname, double balance)
+{
+    if (!nickname.isEmpty()) {
+        m_nickname = nickname;
+        m_nickLabel->setText(m_nickname);
+    }
+    m_balance = balance;
+    m_balanceLabel->setText(
+        QStringLiteral("余额 ¥%1").arg(QString::number(m_balance, 'f', 2)));
+}
+
 void ProfilePage::addOrder(const Order &order)
 {
     // 有真实订单后隐藏空提示，新订单插到列表最上方
