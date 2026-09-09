@@ -53,6 +53,7 @@ private slots:
     void runInTransactionRollsBackOnFailure();
     void integrityCheckAndBackup();
     void preparedStatementPreventsSqlInjection();
+    void settleChargingOrderCompletesAndDeducts();
 };
 
 void TstStationStore::schemaCreatesContractTables()
@@ -423,6 +424,55 @@ void TstStationStore::preparedStatementPreventsSqlInjection()
     const auto stations = store.listStations();
     QCOMPARE(stations.size(), 1);
     QCOMPARE(stations.first().name, evil); // 注入串只作为普通数据保存
+}
+
+void TstStationStore::settleChargingOrderCompletesAndDeducts()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("settle.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+
+    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
+    // 造数：用户100元、电站、桩(充电中)、充电中订单
+    QSqlQuery q(db);
+    const QStringList setup = {
+        QStringLiteral("INSERT INTO users(id,phone,nickname,balance,status) "
+                       "VALUES(1,'13800000001','测试用户',100,0)"),
+        QStringLiteral("INSERT INTO stations(id,name,address) VALUES(1,'测试站','地址')"),
+        QStringLiteral("INSERT INTO piles(id,station_id,code,power_kw,state) "
+                       "VALUES(1,1,'T-P01',60,1)"),
+        QStringLiteral("INSERT INTO orders(id,user_id,pile_id,station_id,start_time,state) "
+                       "VALUES(1,1,1,1,datetime('now','-30 minutes','localtime'),0)")
+    };
+    for (const QString &s : setup)
+        QVERIFY2(q.exec(s), q.lastError().text().toUtf8());
+
+    int orderId = -1;
+    double balance = -1.0;
+    QVERIFY2(store.settleChargingOrderByCode(
+                 QStringLiteral("T-P01"), 20.0, 24.0, &orderId, &balance, &error),
+             qPrintable(error));
+    QCOMPARE(orderId, 1);
+    QCOMPARE(balance, 76.0);   // 100 - 24
+
+    QSqlQuery check(db);
+    QVERIFY(check.exec(QStringLiteral(
+        "SELECT o.state,o.kwh,o.amount,p.state,p.charge_count FROM orders o "
+        "JOIN piles p ON p.id=o.pile_id WHERE o.id=1")));
+    QVERIFY(check.next());
+    QCOMPARE(check.value(0).toInt(), 1);          // 订单已完成
+    QVERIFY(qAbs(check.value(1).toDouble() - 20.0) < 1e-6);
+    QVERIFY(qAbs(check.value(2).toDouble() - 24.0) < 1e-6);
+    QCOMPARE(check.value(3).toInt(), 0);          // 桩已释放
+    QCOMPARE(check.value(4).toInt(), 1);          // 次数 +1
+
+    // 再次对同一桩结算应失败（无充电中订单）
+    error.clear();
+    QVERIFY(!store.settleChargingOrderByCode(
+                QStringLiteral("T-P01"), 1.0, 1.0, nullptr, nullptr, &error));
+    QVERIFY2(error.contains(QStringLiteral("无充电中订单")), qPrintable(error));
 }
 
 QTEST_MAIN(TstStationStore)

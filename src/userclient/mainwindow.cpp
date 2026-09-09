@@ -13,6 +13,15 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QLabel>
+#include <QStatusBar>
+#include <QDateTime>
+
+namespace {
+constexpr int kDefaultPort = cp::kServerPort; // 9999
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
