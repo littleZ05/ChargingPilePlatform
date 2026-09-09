@@ -1,7 +1,6 @@
 # PC 服务器端（Linux + Qt）
-# 说明：基础工程不强制依赖 Qt Charts（当前源码未使用，避免无 charts 开发包环境编译失败）。
-# 归属约定：NO.9 销售业绩（毛悦琮，feat/maoyuecong682）使用 QChart 时，
-# 应在其分支的 pcserver.pro 增加 “QT += charts”，再随 PR 合入 main。
+# 说明：NO.9 销售业绩（毛悦琮）与 NO.17 负荷预测（吴羽桐）均使用 QChart，
+#       因此主工程已启用 charts 模块；公共算法 loadforecast 仅供 QtCore 使用。
 QT       += core gui widgets network sql charts
 CONFIG   += c++17
 
@@ -18,7 +17,8 @@ SOURCES += \
     pricingservice.cpp \
     selfhealservice.cpp \
     ../common/net_server.cpp \
-    ../common/packet_assembler.cpp
+    ../common/packet_assembler.cpp \
+    ../common/loadforecast.cpp
 
 HEADERS += \
     addstationdialog.h \
@@ -28,7 +28,8 @@ HEADERS += \
     selfhealservice.h \
     ../common/common.h \
     ../common/net_server.h \
-    ../common/packet_assembler.h
+    ../common/packet_assembler.h \
+    ../common/loadforecast.h
 
 FORMS += \
     mainwindow.ui
