@@ -233,7 +233,7 @@ const pred=[62,70,78,84,86,82];
 function drawForecast(){
   if(!window.echarts||!$("#chartForecast"))return;
   const c=echarts.init($("#chartForecast"));
-  const cats=hist.map((_,i)=>i-11)+pred.map((_,i)=>i+1);
+  const cats=hist.map((_,i)=>i-11).concat(pred.map((_,i)=>i+1));
   c.setOption({backgroundColor:"transparent",
     tooltip:{trigger:"axis"},
     legend:{data:["历史实测","未来预测"],textStyle:{color:"#6b8b83"},top:0},
