@@ -45,7 +45,7 @@ StationPage::StationPage(QWidget *parent)
     searchRow->setSpacing(8);
     m_searchEdit = new QLineEdit(this);
     m_searchEdit->setObjectName(QStringLiteral("input"));
-    m_searchEdit->setPlaceholderText(QStringLiteral("输入地址重新定位(如: 浑南科技园)"));
+    m_searchEdit->setPlaceholderText(QStringLiteral("输入地址重新定位(如: 中关村)"));
     m_searchEdit->setFixedHeight(38);
     auto *locBtn = new QPushButton(QStringLiteral("定位"), this);
     locBtn->setObjectName(QStringLiteral("primaryButton"));
@@ -91,7 +91,7 @@ void StationPage::relocate()
         // 未输入地址：回到演示默认定位
         gUserLocation.lat = kUserLat;
         gUserLocation.lng = kUserLng;
-        gUserLocation.label = QStringLiteral("沈阳市");
+        gUserLocation.label = QStringLiteral("北京市");
         m_locLabel->setText(QStringLiteral("当前定位：%1").arg(gUserLocation.label));
         sortByDistance();
         rebuildList();
@@ -217,7 +217,7 @@ void StationPage::onRelocatePlaceReply(QNetworkReply *reply)
 
     if (!resolved) {
         QMessageBox::information(this, QStringLiteral("定位失败"),
-                                 QStringLiteral("未找到该地址，请检查后重试（如：浑南科技园）"));
+                                 QStringLiteral("未找到该地址，请检查后重试（如：中关村）"));
         return;
     }
 

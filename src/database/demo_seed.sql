@@ -19,11 +19,11 @@ INSERT INTO users(phone,nickname,avatar_path,balance,status,gmt_create,gmt_modif
 
 -- 3) 充电站（5 座，价格/经纬度各异，便于腾讯地图距离与价格对比）
 INSERT INTO stations(name,address,longitude,latitude,total_piles,online_rate,base_price,gmt_create) VALUES
- ('东软软件园充电站','沈阳市浑南区智慧二街100号',123.4958,41.7152,8,  100,1.20,datetime('now','-90 days','localtime')),
- ('沈阳奥体中心充电站','沈阳市浑南区浑南中路30号',123.4721,41.7283,10,  90,1.08,datetime('now','-90 days','localtime')),
- ('中街大悦城充电站','沈阳市大东区小东路10号',    123.4653,41.7993,6,   95,0.98,datetime('now','-89 days','localtime')),
- ('桃仙机场快充站','沈阳市浑南区机场路',          123.4870,41.6399,8,   88,1.35,datetime('now','-88 days','localtime')),
- ('浑南政务中心充电站','沈阳市浑南区智慧三街168号',123.4891,41.7040,5,  100,1.10,datetime('now','-87 days','localtime'));
+ ('中关村软件园充电站','北京市海淀区东北旺西路8号',116.2970,40.0470,8,  100,1.20,datetime('now','-90 days','localtime')),
+ ('望京SOHO充电站','北京市朝阳区望京街10号',      116.4810,39.9960,10,  90,1.08,datetime('now','-90 days','localtime')),
+ ('国贸CBD充电站','北京市朝阳区建国门外大街1号',   116.4610,39.9080,6,   95,0.98,datetime('now','-89 days','localtime')),
+ ('亦庄同济南路充电站','北京市大兴区同济南路甲1号', 116.5060,39.7950,8,   88,1.35,datetime('now','-88 days','localtime')),
+ ('上地信息产业基地充电站','北京市海淀区上地十街10号',116.3040,40.0500,5,100,1.10,datetime('now','-87 days','localtime'));
 
 -- 4) 充电桩（5 站共 37 根：快充/慢充/功率/状态分布；每站至少 1 根故障便于“故障看板+远程重启”）
 INSERT INTO piles(station_id,code,type,power_kw,state,charge_count,charge_seconds) VALUES
@@ -103,7 +103,7 @@ FROM orders o
 WHERE o.state=1 AND o.id % 3 = 0
 LIMIT 300;
 
--- 8.2 彩蛋：给“中街大悦城站”S03-P02 预置连续 3 条异常低功率，
+-- 8.2 彩蛋：给“国贸CBD充电站”S03-P02 预置连续 3 条异常低功率，
 --      PcServer 启动后 10 秒内会自动演示“自愈检查 → 模拟远程重启”
 INSERT INTO pile_power_logs(pile_id,order_id,real_power,logged_at)
 SELECT p.id, NULL, ROUND(p.power_kw*0.3,1), datetime('now', '-'||n||' minutes','localtime')
