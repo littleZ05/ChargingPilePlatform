@@ -26,9 +26,11 @@ public:
 
     void refreshStations();
     void refreshPileDetail();
+    void refreshUsers();
 
 private slots:
     void simulateRealtimeOnce();
+    void changeSelectedUserStatus(int status);
 
 private:
     void buildUi();
@@ -43,6 +45,7 @@ private:
     void sendRemoteRestart();
     void updateActionButtons();
     void setupStationPage();
+    void setupUserPage();
     void fillStationTable(const QVector<pcserver::StationInfo> &stations);
     int selectedStationId() const;
     void selectStationById(int stationId);

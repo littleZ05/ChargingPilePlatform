@@ -24,6 +24,7 @@ tst_stationstore
 tst_stationui
 tst_services
 tst_protocol
+tst_usermanagement
 InnovationDemo
 innovation_tests
 debug/
