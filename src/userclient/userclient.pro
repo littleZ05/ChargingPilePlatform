@@ -15,7 +15,10 @@ SOURCES += \
     stationpage.cpp \
     stationdetailpage.cpp \
     profilepage.cpp \
-    mappage.cpp
+    mappage.cpp \
+    pcserver_session.cpp \
+    ../common/net_client.cpp \
+    ../common/packet_assembler.cpp
 
 HEADERS += \
     mainwindow.h \
@@ -26,6 +29,9 @@ HEADERS += \
     mappage.h \
     station.h \
     tencentkey.h \
-    ../common/common.h
+    pcserver_session.h \
+    ../common/common.h \
+    ../common/net_client.h \
+    ../common/packet_assembler.h
 
 QMAKE_CXXFLAGS += -Wall
