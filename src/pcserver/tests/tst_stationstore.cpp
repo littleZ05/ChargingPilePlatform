@@ -472,7 +472,7 @@ void TstStationStore::settleChargingOrderCompletesAndDeducts()
     error.clear();
     QVERIFY(!store.settleChargingOrderByCode(
                 QStringLiteral("T-P01"), 1.0, 1.0, nullptr, nullptr, &error));
-    QVERIFY(error.contains(QStringLiteral("无充电中订单")));
+    QVERIFY2(error.contains(QStringLiteral("无充电中订单")), qPrintable(error));
 }
 
 QTEST_MAIN(TstStationStore)

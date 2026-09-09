@@ -516,6 +516,7 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         return false;
     }
     QString innerErr;
+    QString txnErr;
     bool ok = runInTransaction([&](QSqlDatabase &db) {
         QSqlQuery q(db);
         // 1) 定位电桩
@@ -597,10 +598,12 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         if (!refreshOnlineRate(stationId, &innerErr))
             return false;
         return true;
-    }, &innerErr);
+    }, &txnErr);
     if (!ok) {
         if (error)
-            *error = innerErr.isEmpty() ? QStringLiteral("结算失败") : innerErr;
+            *error = innerErr.isEmpty()
+                         ? (txnErr.isEmpty() ? QStringLiteral("结算失败") : txnErr)
+                         : innerErr;
         return false;
     }
     return true;
