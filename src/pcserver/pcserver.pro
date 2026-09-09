@@ -17,6 +17,7 @@ SOURCES += \
     stationstore.cpp \
     pricingservice.cpp \
     selfhealservice.cpp \
+    uitheme.cpp \
     ../common/net_server.cpp \
     ../common/packet_assembler.cpp \
     ../common/loadforecast.cpp
@@ -28,6 +29,7 @@ HEADERS += \
     stationstore.h \
     pricingservice.h \
     selfhealservice.h \
+    uitheme.h \
     ../common/common.h \
     ../common/net_server.h \
     ../common/packet_assembler.h \
@@ -38,5 +40,9 @@ FORMS += \
 
 RESOURCES += \
     pcserver.qrc
+
+# NO.18 主题源文件随 qrc 编译（:/styles/theme.qss）；此处登记便于 IDE/打包定位
+DISTFILES += \
+    styles/dark_theme.qss
 
 QMAKE_CXXFLAGS += -Wall

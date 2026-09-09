@@ -14,6 +14,7 @@ SOURCES += \
     $$PWD/../dashboard_api.cpp \
     $$PWD/../mainwindow.cpp \
     $$PWD/../stationstore.cpp \
+    $$PWD/../uitheme.cpp \
     $$PWD/../../common/net_client.cpp \
     $$PWD/../../common/net_server.cpp \
     $$PWD/../../common/packet_assembler.cpp \
@@ -24,6 +25,7 @@ HEADERS += \
     $$PWD/../dashboard_api.h \
     $$PWD/../mainwindow.h \
     $$PWD/../stationstore.h \
+    $$PWD/../uitheme.h \
     $$PWD/../../common/common.h \
     $$PWD/../../common/net_client.h \
     $$PWD/../../common/net_server.h \
