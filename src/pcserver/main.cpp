@@ -4,10 +4,13 @@
 #include <QDir>
 #include <QMessageBox>
 
+#include <algorithm>
+
 #include "mainwindow.h"
 #include "stationstore.h"
 #include "pricingservice.h"
 #include "selfhealservice.h"
+#include "loadforecast.h"
 
 int main(int argc, char *argv[])
 {
@@ -46,6 +49,27 @@ int main(int argc, char *argv[])
     pcserver::PricingService pricing(dbPath);
     QObject::connect(&pricing, &pcserver::PricingService::message,
                      [](const QString &m) { qInfo().noquote() << m; });
+    // NO.17 → 创新点1 闭环：预测未来 1h 负荷 / 站额定容量 ⇒ 预测空闲率(%)
+    pricing.setIdleRateProvider([&store](int stationId) -> double {
+        QString err;
+        const double capacityKw = store.ratedCapacityKw(stationId, &err);
+        if (capacityKw <= 0.0)
+            return 0.0;
+        bool usedDemo = false;
+        const QVector<double> history =
+            store.hourlyLoadSamples(stationId, 12, &usedDemo, &err);
+        cp::LoadForecastInput input;
+        input.historyKw = history;
+        input.horizonHours = 1;
+        input.capacityKw = capacityKw;
+        const cp::LoadForecastResult result = cp::forecastLoad(input);
+        if (!result.ok || result.forecastKw.isEmpty())
+            return 0.0;
+        const double predictedKw = result.forecastKw.first();
+        const double idlePercent =
+            std::max(0.0, std::min(100.0, (1.0 - predictedKw / capacityKw) * 100.0));
+        return idlePercent;
+    });
     pricing.start(10000);
 
     pcserver::SelfHealService selfHeal(dbPath);

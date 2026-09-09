@@ -35,6 +35,32 @@
   列表“当前在线率 = 非故障电桩数 / 总电桩数 × 100%”同步刷新。
   后续接入真实 Socket 上报时，可把模拟推进替换为实时数据源。
 
+## 已实现：NO.17 充电负荷智能预测（吴羽桐）
+
+1. **轻量时序算法**：`src/common/loadforecast.h/.cpp`（纯 QtCore，C++17）。
+   - 默认模型：最小二乘线性回归（OLS）——用近 12/24h 整点负荷拟合
+     `ŷ_h = a + b·h` 外推未来 1~6h；
+   - 备选模型：加权移动平均（WMA）——最近 6 点线性加权求水平后延续；
+   - 统一防护：样本不足 3 点 / 含负值或非数值时拒绝计算并返回中文原因；
+     方差≈0 不除零（按 0 斜率处理）；预测钳制在 `[0, 站额定容量]`；
+     输出趋势方向、峰值及出现小时，全程值类型无裸指针。
+2. **数据源策略**（`StationStore`）：“真实聚合优先 + 仿真兜底”。
+   先按小时聚合 `pile_power_logs`（电站维度求和），有效样本不足
+   `max(3, hours/3)` 时回退确定性仿真日曲线（夜间低谷/早晚高峰），
+   保证演示稳定且界面如实标注“演示采样”。
+3. **Qt 视图**：PcServer 新增“负荷预测”页签——
+   电站 / 历史窗口（12h、24h）/ 预测范围（1、3、6h）/ 模型（OLS、WMA）可选，
+   QChart 以蓝实线绘制历史实测负荷、橙虚线绘制未来预测负荷，
+   并标记当前时刻分隔线与当前负荷、趋势、峰值、数据源摘要。
+4. **创新点闭环**：`main.cpp` 将 OLS 预测 1h 负荷换算为预测空闲率并注入
+   `PricingService`，替换“当前空闲率”占位数据源（无预测时仍回落原逻辑）。
+
+测试：
+- `src/common/tests/loadforecast_tests.pro`：算法用例（斜率恢复 / 常数防除零 /
+  WMA / 非法值 / 容量钳制 / 窗口差异等，10 条断言）；
+- `src/pcserver/tests/loadforecastdata_tests.pro`：数据源策略 + 算法联调；
+- `src/pcserver/tests/stationui_tests.pro`：新增页签曲线 / 文案 UI 断言。
+
 ## Socket 业务接入（NO.19 → 业务层）
 
 - `MainWindow` 初始化时创建 `cp::NetServer` 并以公共端口 `cp::kServerPort`（9999）监听，
@@ -51,7 +77,8 @@ src/pcserver/
 ├── main.cpp              # 入口：打开 SQLite + 演示数据种子
 ├── mainwindow.*          # 主窗口：站列表 + 桩明细双区布局、3s 实时刷新
 ├── addstationdialog.*    # 新增电站对话框（校验/取值）
-├── stationstore.*        # 数据访问层：schema/列表/桩明细/新增/状态/在线率
+├── stationstore.*        # 数据访问层：schema/列表/桩明细/新增/状态/在线率 + NO.17 负荷采样
+├── ../common/loadforecast.*  # NO.17 轻量时序预测引擎（OLS/WMA，纯 QtCore）
 ├── pcserver.qrc          # 内置 ../database/schema.sql
 ├── pcserver.pro
 └── tests/                # QtTest 单元与 offscreen 界面测试
@@ -65,9 +92,8 @@ qmake6 && make
 ./PcServer                # 无显示环境可加 QT_QPA_PLATFORM=offscreen
 ```
 
-> Qt Charts 依赖约定：本基础工程不引入 `charts` 模块；
-> NO.9 销售业绩（毛悦琮，`feat/maoyuecong682`）实现 QChart 时，
-> 在其分支 `pcserver.pro` 的 `QT +=` 中加回 `charts` 后随 PR 合入 main。
+> Qt Charts 依赖约定：主工程已启用 `charts`（NO.9 销售业绩 QChart 与
+> NO.17 负荷预测页签共用）；公共 `loadforecast` 引擎本身不依赖 charts。
 
 ## 自动化测试
 
@@ -79,6 +105,14 @@ qmake6 <仓库>/src/pcserver/tests/stationstore_tests.pro && make && ./tst_stati
 # 界面测试（无需显示器）
 mkdir -p /tmp/station-ui-test && cd /tmp/station-ui-test
 qmake6 <仓库>/src/pcserver/tests/stationui_tests.pro && make && QT_QPA_PLATFORM=offscreen ./tst_stationui
+
+# NO.17 负荷预测算法测试
+mkdir -p /tmp/load-forecast-test && cd /tmp/load-forecast-test
+qmake6 <仓库>/src/common/tests/loadforecast_tests.pro && make && ./tst_loadforecast
+
+# NO.17 数据源策略 + 算法联调测试
+mkdir -p /tmp/load-forecast-data-test && cd /tmp/load-forecast-data-test
+qmake6 <仓库>/src/pcserver/tests/loadforecastdata_tests.pro && make && ./tst_loadforecastdata
 
 # Socket 业务协议测试（心跳/电站查询/订单上报）
 mkdir -p /tmp/socket-biz-test && cd /tmp/socket-biz-test

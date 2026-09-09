@@ -1,6 +1,7 @@
 #include "stationstore.h"
 
 #include <QDir>
+#include <QHash>
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
@@ -8,7 +9,11 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QTime>
 #include <QVariant>
+
+#include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -56,6 +61,53 @@ QStringList splitSqlStatements(const QString &sql)
 QString queryError(const QSqlQuery &q)
 {
     return q.lastError().text();
+}
+
+/** 当前整点（小时桶起点），本地时间 */
+QDateTime currentHourStart()
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    return QDateTime(now.date(), QTime(now.time().hour(), 0));
+}
+
+/** 确定性日负荷曲线系数：夜间低谷、早高峰 9-11 点、晚高峰 17-19 点 */
+double demoHourFactor(int hourOfDay)
+{
+    static const double kFactors[24] = {
+        0.08, 0.06, 0.05, 0.05, 0.06, 0.10, 0.16, 0.24,
+        0.34, 0.44, 0.50, 0.54, 0.50, 0.46, 0.44, 0.48,
+        0.56, 0.66, 0.72, 0.68, 0.58, 0.46, 0.34, 0.22
+    };
+    return kFactors[((hourOfDay % 24) + 24) % 24];
+}
+
+double roundLoad(double value)
+{
+    return qRound(value * 10.0) / 10.0;
+}
+
+/**
+ * 仿真采样曲线（确定性、无随机数）：
+ * capacity × 时段系数 + 按电站/时段固定的微波动，最近小时优先对齐实时负荷。
+ */
+QVector<double> demoHourlyLoadSeries(int stationId, int hours,
+                                     const QDateTime &anchorHour,
+                                     double capacityKw, double currentKw)
+{
+    constexpr double kPi = 3.14159265358979323846;
+    QVector<double> out;
+    out.reserve(hours);
+    for (int k = 0; k < hours; ++k) {
+        const QDateTime bucketStart = anchorHour.addSecs((k - hours + 1) * 3600);
+        const int hod = bucketStart.time().hour();
+        const double ripple = 0.03 * capacityKw
+                              * std::sin((hod * 2 + stationId * 3) * kPi / 12.0);
+        double kw = capacityKw * demoHourFactor(hod) + ripple;
+        if (k == hours - 1 && currentKw > 0.0)
+            kw = currentKw;
+        out.push_back(roundLoad(std::max(0.0, kw)));
+    }
+    return out;
 }
 
 } // namespace
@@ -371,6 +423,112 @@ QVector<PileInfo> StationStore::listPiles(int stationId)
         result.append(pile);
     }
     return result;
+}
+
+double StationStore::ratedCapacityKw(int stationId, QString *error) const
+{
+    if (stationId <= 0) {
+        if (error) *error = QStringLiteral("电站ID非法");
+        return 0.0;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT COALESCE(SUM(power_kw), 0) FROM piles WHERE station_id = ?"));
+    q.addBindValue(stationId);
+    if (!q.exec() || !q.next()) {
+        if (error) *error = queryError(q);
+        return 0.0;
+    }
+    return q.value(0).toDouble();
+}
+
+double StationStore::currentLoadKw(int stationId, QString *error) const
+{
+    if (stationId <= 0) {
+        if (error) *error = QStringLiteral("电站ID非法");
+        return 0.0;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT COALESCE(SUM(power_kw), 0) FROM piles "
+        "WHERE station_id = ? AND state = ?"));
+    q.addBindValue(stationId);
+    q.addBindValue(static_cast<int>(cp::PileState::Charging));
+    if (!q.exec() || !q.next()) {
+        if (error) *error = queryError(q);
+        return 0.0;
+    }
+    return q.value(0).toDouble();
+}
+
+QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
+                                                bool *usedDemoFallback,
+                                                QString *error) const
+{
+    QVector<double> result;
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return result;
+    }
+    if (stationId <= 0) {
+        if (error) *error = QStringLiteral("电站ID非法");
+        return result;
+    }
+
+    hours = std::max(1, std::min(hours, 48));
+    const QDateTime anchorHour = currentHourStart();
+    const QDateTime windowStart = anchorHour.addSecs(-(hours - 1) * 3600);
+    const QDateTime windowEnd = anchorHour.addSecs(3600);
+
+    // 1) 真实聚合优先：电站维度最近 hours 小时整点桶内的桩功率日志求和
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT l.logged_at, l.real_power "
+        "FROM pile_power_logs l "
+        "JOIN piles p ON p.id = l.pile_id "
+        "WHERE p.station_id = ? AND l.real_power > 0 "
+        "  AND l.logged_at >= ? AND l.logged_at < ?"));
+    q.addBindValue(stationId);
+    q.addBindValue(windowStart.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    q.addBindValue(windowEnd.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    if (!q.exec()) {
+        if (error) *error = queryError(q);
+        return result;
+    }
+
+    QHash<qint64, double> loadByHour;
+    while (q.next()) {
+        const QDateTime logged = QDateTime::fromString(q.value(0).toString(),
+                                                       QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        if (!logged.isValid())
+            continue;
+        const QDateTime bucketStart(logged.date(), QTime(logged.time().hour(), 0));
+        loadByHour[bucketStart.toMSecsSinceEpoch()] += q.value(1).toDouble();
+    }
+
+    const double capacityKw = ratedCapacityKw(stationId, error);
+    const double currentKw = currentLoadKw(stationId, error);
+    result.reserve(hours);
+    int nonZeroSamples = 0;
+    for (int k = 0; k < hours; ++k) {
+        const QDateTime bucketStart = windowStart.addSecs(k * 3600);
+        double kw = loadByHour.value(bucketStart.toMSecsSinceEpoch(), 0.0);
+        if (k == hours - 1 && currentKw > 0.0)
+            kw = currentKw;  // 最近小时与实际充电状态对齐（实时负荷优先）
+        if (kw > 0.0)
+            ++nonZeroSamples;
+        result.push_back(roundLoad(kw));
+    }
+
+    const int needReal = std::max(3, hours / 3);
+    if (nonZeroSamples >= needReal) {
+        if (usedDemoFallback) *usedDemoFallback = false;
+        return result;
+    }
+
+    // 2) 样本不足 → 仿真采样兜底（确定性，答辩演示稳定）
+    if (usedDemoFallback) *usedDemoFallback = true;
+    return demoHourlyLoadSeries(stationId, hours, anchorHour, capacityKw, currentKw);
 }
 
 bool StationStore::findPileByCode(const QString &code, PileInfo *out)

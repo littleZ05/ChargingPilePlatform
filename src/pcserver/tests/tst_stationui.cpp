@@ -1,5 +1,9 @@
 #include <QtTest/QtTest>
 
+#include <QtCharts/QChart>
+#include <QtCharts/QChartView>
+
+#include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QDoubleSpinBox>
@@ -27,6 +31,7 @@ private slots:
     void addStationDialogRejectsInvalidInput();
     void addStationDialogAcceptsValidInput();
     void realtimeSimulationTickChangesPileState();
+    void forecastTabRendersHistoryAndForecastSeries();
 };
 
 void TstStationUi::stationListHeadersMatchRequirement()
@@ -233,6 +238,44 @@ void TstStationUi::realtimeSimulationTickChangesPileState()
         }
     }
     QVERIFY2(changed, "实时模拟调用后应至少有一根电桩状态发生变化");
+}
+
+void TstStationUi::forecastTabRendersHistoryAndForecastSeries()
+{
+    QString error;
+    StationStore store;
+    const QString dbPath = makeTestDatabasePath(QStringLiteral("ui-forecast.db"));
+    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
+    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
+    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
+
+    MainWindow window(&store);  // 构造即触发 refreshAll → refreshLoadForecast
+    auto *stationCombo =
+        window.findChild<QComboBox *>(QStringLiteral("forecastStationCombo"));
+    auto *chartView =
+        window.findChild<QChartView *>(QStringLiteral("forecastChartView"));
+    auto *statusLabel =
+        window.findChild<QLabel *>(QStringLiteral("forecastStatusLabel"));
+    QVERIFY(stationCombo);
+    QVERIFY(chartView);
+    QVERIFY(statusLabel);
+
+    QVERIFY(stationCombo->count() > 0);
+    QVERIFY(chartView->chart());
+    const auto series = chartView->chart()->series();
+    QVERIFY2(series.size() >= 3, "应包含历史/预测/当前时刻三条序列");
+
+    QStringList seriesNames;
+    for (auto *s : series)
+        seriesNames << s->name();
+    QVERIFY(seriesNames.contains(QStringLiteral("历史实测负荷")));
+    QVERIFY(seriesNames.contains(QStringLiteral("未来预测负荷")));
+    QVERIFY(seriesNames.contains(QStringLiteral("当前时刻")));
+
+    const QString statusText = statusLabel->text();
+    QVERIFY2(statusText.contains(QStringLiteral("预测模型")), qPrintable(statusText));
+    QVERIFY2(statusText.contains(QStringLiteral("峰值预测")), qPrintable(statusText));
+    QVERIFY2(statusText.contains(QStringLiteral("数据源")), qPrintable(statusText));
 }
 
 QTEST_MAIN(TstStationUi)
