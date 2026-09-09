@@ -104,6 +104,15 @@ struct OrderRow {
     int state = 0;
 };
 
+struct UserRow {
+    int id = 0;
+    QString phone;
+    QString nickname;
+    double balance = 0.0;
+    QString gmtCreate;
+    int status = 0; // 0 正常 / 1 冻结
+};
+
 struct RevenuePoint {
     QString label;
     double amount = 0.0;
@@ -141,6 +150,21 @@ QString orderStateText(int state)
     default:
         return QStringLiteral("未知");
     }
+}
+
+QString userStatusText(int status)
+{
+    return status == 1 ? QStringLiteral("冻结") : QStringLiteral("正常");
+}
+
+/** 将 LIKE 用户输入中的通配符转义为字面量（参数化之外的第二道防通配符注入） */
+QString escapeLikePattern(const QString &input)
+{
+    QString escaped = input;
+    escaped.replace(QStringLiteral("\\"), QStringLiteral("\\\\"));
+    escaped.replace(QStringLiteral("%"), QStringLiteral("\\%"));
+    escaped.replace(QStringLiteral("_"), QStringLiteral("\\_"));
+    return escaped;
 }
 
 QColor stateColor(int state)
@@ -303,6 +327,42 @@ void configureOrdersTable(QTableWidget *table)
     table->verticalHeader()->setVisible(false);
     table->horizontalHeader()->setStretchLastSection(true);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+}
+
+void configureUserTable(QTableWidget *table)
+{
+    table->setColumnCount(6);
+    table->setHorizontalHeaderLabels({
+        QStringLiteral("用户ID"),
+        QStringLiteral("手机号"),
+        QStringLiteral("昵称"),
+        QStringLiteral("钱包余额(元)"),
+        QStringLiteral("注册时间"),
+        QStringLiteral("状态")
+    });
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setAlternatingRowColors(true);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+}
+
+void fillUserTable(QTableWidget *table, const QVector<UserRow> &rows)
+{
+    QSignalBlocker blocker(table);
+    table->clearContents();
+    table->setRowCount(rows.size());
+    for (int row = 0; row < rows.size(); ++row) {
+        const UserRow &user = rows.at(row);
+        table->setItem(row, 0, makeItem(QString::number(user.id), user.id));
+        table->setItem(row, 1, makeItem(user.phone));
+        table->setItem(row, 2, makeItem(user.nickname));
+        table->setItem(row, 3, makeItem(moneyText(user.balance)));
+        table->setItem(row, 4, makeItem(user.gmtCreate));
+        table->setItem(row, 5, makeItem(userStatusText(user.status), user.status));
+    }
 }
 
 void fillPileTable(QTableWidget *table, const QVector<PileRow> &rows)
@@ -599,6 +659,72 @@ public:
         return rows;
     }
 
+    QVector<UserRow> users(const QString &phoneKeyword = QString(),
+                           QString *error = nullptr) const
+    {
+        QVector<UserRow> rows;
+        QString sql = QStringLiteral(
+            "SELECT id, phone, COALESCE(nickname, ''), balance, "
+            "COALESCE(gmt_create, ''), status FROM users ");
+        QVariantList binds;
+        const QString keyword = phoneKeyword.trimmed();
+        if (!keyword.isEmpty()) {
+            sql += QStringLiteral("WHERE phone LIKE ? ESCAPE '\\' ");
+            binds << QStringLiteral("%%1%").arg(escapeLikePattern(keyword));
+        }
+        sql += QStringLiteral("ORDER BY id ASC");
+
+        QSqlQuery query(m_db);
+        query.prepare(sql);
+        for (const QVariant &bind : binds) {
+            query.addBindValue(bind);
+        }
+        if (!query.exec()) {
+            if (error) {
+                *error = query.lastError().text();
+            }
+            return rows;
+        }
+        while (query.next()) {
+            UserRow row;
+            row.id = query.value(0).toInt();
+            row.phone = query.value(1).toString();
+            row.nickname = query.value(2).toString();
+            row.balance = query.value(3).toDouble();
+            row.gmtCreate = query.value(4).toString();
+            row.status = query.value(5).toInt();
+            rows.push_back(row);
+        }
+        return rows;
+    }
+
+    /** 冻结(1)/解冻(0)：仅允许合法状态，成功后刷新 gmt_modified */
+    bool setUserStatus(int userId, int status, QString *error = nullptr)
+    {
+        if (userId <= 0) {
+            if (error) *error = QStringLiteral("用户ID非法");
+            return false;
+        }
+        if (status != 0 && status != 1) {
+            if (error) *error = QStringLiteral("用户状态非法（仅 0 正常 / 1 冻结）");
+            return false;
+        }
+
+        QSqlQuery query(m_db);
+        query.prepare(QStringLiteral(
+            "UPDATE users SET status = ?, gmt_modified = datetime('now','localtime') "
+            "WHERE id = ?"));
+        query.addBindValue(status);
+        query.addBindValue(userId);
+        if (!query.exec()) {
+            if (error) {
+                *error = query.lastError().text();
+            }
+            return false;
+        }
+        return query.numRowsAffected() > 0;
+    }
+
     bool addPile(int stationId, const QString &code, const QString &type, double powerKw, int state, int *newId = nullptr, QString *error = nullptr)
     {
         QSqlQuery query(m_db);
@@ -746,6 +872,11 @@ private:
 
     QString dbPath() const
     {
+        // 测试/演示可用环境变量指定独立数据库，避免污染用户数据（默认不变）
+        const QByteArray envPath = qgetenv("PCSERVER_DB_PATH");
+        if (!envPath.isEmpty()) {
+            return QString::fromLocal8Bit(envPath);
+        }
         QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
         if (base.isEmpty()) {
             base = QDir::homePath() + QStringLiteral("/ChargingPilePlatform");
@@ -1380,6 +1511,15 @@ struct MainWindow::Private
     QPushButton *manageRestartButton = nullptr;
     QPushButton *manageClearButton = nullptr;
 
+    QLineEdit *userSearchEdit = nullptr;
+    QPushButton *userSearchButton = nullptr;
+    QPushButton *userRefreshButton = nullptr;
+    QPushButton *userFreezeButton = nullptr;
+    QPushButton *userUnfreezeButton = nullptr;
+    QTableWidget *userTable = nullptr;
+    int selectedUserId = -1;
+    int selectedUserStatus = -1;
+
     QTableWidget *stationTable = nullptr;
     QTableWidget *stationPileTable = nullptr;
     QLabel *stationPileHintLabel = nullptr;
@@ -1605,6 +1745,7 @@ void MainWindow::buildUi()
     d->manageTable = new QTableWidget(managePage);
     configurePileTable(d->manageTable);
     setupStationPage();
+    setupUserPage();
 
     manageLayout->addWidget(manageFormPanel, 0);
     manageLayout->addWidget(d->manageTable, 1);
@@ -1680,9 +1821,14 @@ void MainWindow::buildUi()
 
 void MainWindow::refreshAll()
 {
+    QString error;
+    if (!DatabaseManager::instance().initialize(&error)) {
+        statusBar()->showMessage(QStringLiteral("数据库初始化失败：%1").arg(error), 8000);
+    }
     refreshSales();
     refreshPileStatus();
     refreshPileManagement();
+    refreshUsers();
     refreshStations();
     updateActionButtons();
     d->adminLabel->setText(QStringLiteral("当前管理员：%1").arg(d->adminName));
@@ -1906,12 +2052,19 @@ void MainWindow::updateActionButtons()
 {
     const bool hasStatusSelection = d->selectedStatusPileId > 0;
     const bool hasManageSelection = d->selectedManagePileId > 0;
+    const bool hasUserSelection = d->selectedUserId > 0 && d->selectedUserStatus >= 0;
     d->statusSetIdleButton->setEnabled(hasStatusSelection);
     d->statusSetChargingButton->setEnabled(hasStatusSelection);
     d->statusSetFaultButton->setEnabled(hasStatusSelection);
     d->manageUpdateButton->setEnabled(hasManageSelection);
     d->manageDeleteButton->setEnabled(hasManageSelection);
     d->manageRestartButton->setEnabled(hasManageSelection);
+    if (d->userFreezeButton) {
+        d->userFreezeButton->setEnabled(hasUserSelection && d->selectedUserStatus == 0);
+    }
+    if (d->userUnfreezeButton) {
+        d->userUnfreezeButton->setEnabled(hasUserSelection && d->selectedUserStatus == 1);
+    }
 }
 
 void MainWindow::setupStationPage()
@@ -2005,6 +2158,134 @@ void MainWindow::setupStationPage()
         connect(d->stationTimer, &QTimer::timeout, this, &MainWindow::simulateRealtimeOnce);
         d->stationTimer->start();
     }
+}
+
+void MainWindow::setupUserPage()
+{
+    auto *page = new QWidget(d->tabs);
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(10);
+
+    auto *toolbar = new QHBoxLayout;
+    toolbar->addWidget(new QLabel(QStringLiteral("手机号搜索"), page));
+    d->userSearchEdit = new QLineEdit(page);
+    d->userSearchEdit->setObjectName(QStringLiteral("userSearchEdit"));
+    d->userSearchEdit->setClearButtonEnabled(true);
+    d->userSearchEdit->setPlaceholderText(QStringLiteral("支持手机号模糊搜索，例如 138000"));
+    d->userSearchEdit->setMaximumWidth(280);
+    d->userSearchButton = new QPushButton(QStringLiteral("搜索"), page);
+    d->userSearchButton->setObjectName(QStringLiteral("userSearchButton"));
+    d->userRefreshButton = new QPushButton(QStringLiteral("刷新"), page);
+    d->userRefreshButton->setObjectName(QStringLiteral("userRefreshButton"));
+    toolbar->addWidget(d->userSearchEdit);
+    toolbar->addWidget(d->userSearchButton);
+    toolbar->addWidget(d->userRefreshButton);
+    toolbar->addStretch(1);
+    layout->addLayout(toolbar);
+
+    d->userTable = new QTableWidget(page);
+    d->userTable->setObjectName(QStringLiteral("userTable"));
+    configureUserTable(d->userTable);
+    layout->addWidget(d->userTable, 1);
+
+    auto *actionRow = new QHBoxLayout;
+    d->userFreezeButton = new QPushButton(QStringLiteral("冻结账号"), page);
+    d->userFreezeButton->setObjectName(QStringLiteral("userFreezeButton"));
+    d->userUnfreezeButton = new QPushButton(QStringLiteral("解冻账号"), page);
+    d->userUnfreezeButton->setObjectName(QStringLiteral("userUnfreezeButton"));
+    actionRow->addWidget(d->userFreezeButton);
+    actionRow->addWidget(d->userUnfreezeButton);
+    actionRow->addStretch(1);
+    layout->addLayout(actionRow);
+
+    d->tabs->addTab(page, QStringLiteral("用户管理"));
+
+    connect(d->userSearchButton, &QPushButton::clicked, this, &MainWindow::refreshUsers);
+    connect(d->userSearchEdit, &QLineEdit::returnPressed, this, &MainWindow::refreshUsers);
+    connect(d->userRefreshButton, &QPushButton::clicked, this, &MainWindow::refreshUsers);
+    connect(d->userTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const int row = d->userTable->currentRow();
+        if (row >= 0) {
+            d->selectedUserId = rowId(d->userTable, row);
+            const auto *statusItem = d->userTable->item(row, 5);
+            d->selectedUserStatus =
+                statusItem ? statusItem->data(Qt::UserRole).toInt() : -1;
+        } else {
+            d->selectedUserId = -1;
+            d->selectedUserStatus = -1;
+        }
+        updateActionButtons();
+    });
+    connect(d->userFreezeButton, &QPushButton::clicked, this, [this]() {
+        if (QMessageBox::question(this, QStringLiteral("冻结账号"),
+                                  QStringLiteral("确定冻结该用户账号吗？冻结后禁止继续充电。"))
+            == QMessageBox::Yes) {
+            changeSelectedUserStatus(1);
+        }
+    });
+    connect(d->userUnfreezeButton, &QPushButton::clicked, this, [this]() {
+        if (QMessageBox::question(this, QStringLiteral("解冻账号"),
+                                  QStringLiteral("确定解冻该用户账号吗？"))
+            == QMessageBox::Yes) {
+            changeSelectedUserStatus(0);
+        }
+    });
+}
+
+void MainWindow::refreshUsers()
+{
+    if (!d->userTable) {
+        return;
+    }
+    QString error;
+    const QString keyword =
+        d->userSearchEdit ? d->userSearchEdit->text().trimmed() : QString();
+    const QVector<UserRow> rows = DatabaseManager::instance().users(keyword, &error);
+    if (!error.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("读取用户列表失败：%1").arg(error), 5000);
+    }
+
+    const int keepId = d->selectedUserId;
+    fillUserTable(d->userTable, rows);
+    if (keepId > 0) {
+        const int row = findRowById(d->userTable, keepId);
+        if (row >= 0) {
+            d->userTable->selectRow(row);
+        } else {
+            d->selectedUserId = -1;
+            d->selectedUserStatus = -1;
+        }
+    }
+    statusBar()->showMessage(QStringLiteral("共 %1 位用户").arg(rows.size()), 3000);
+    updateActionButtons();
+}
+
+void MainWindow::changeSelectedUserStatus(int status)
+{
+    if (d->selectedUserId <= 0) {
+        QMessageBox::warning(this, QStringLiteral("操作失败"),
+                             QStringLiteral("请先选择一位用户。"));
+        return;
+    }
+    if (status == d->selectedUserStatus) {
+        QMessageBox::warning(this, QStringLiteral("操作失败"),
+                             status == 1 ? QStringLiteral("该用户已是冻结状态")
+                                         : QStringLiteral("该用户已是正常状态"));
+        return;
+    }
+
+    QString error;
+    if (!DatabaseManager::instance().setUserStatus(d->selectedUserId, status, &error)) {
+        QMessageBox::warning(this, QStringLiteral("操作失败"), error);
+        return;
+    }
+    statusBar()->showMessage(
+        QStringLiteral("用户 %1 已%2")
+            .arg(d->selectedUserId)
+            .arg(status == 1 ? QStringLiteral("冻结") : QStringLiteral("解冻")),
+        5000);
+    refreshUsers();
 }
 
 void MainWindow::simulateRealtimeOnce()

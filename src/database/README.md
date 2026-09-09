@@ -91,7 +91,30 @@ sqlite3 chargingpile.db < schema.sql
 脚本对同库重复执行是幂等的（`IF NOT EXISTS`），但**已存在的旧结构不会自动补约束**。
 课程演示阶段建议删除旧 `*.db` 后重建；真实项目应走评审后的迁移脚本，禁止生产环境直接删表。
 
-## 六、自动化测试
+## 六、数据库开发与管理（NO.15）
+
+- 连接管理：`StationStore::open` 统一执行内置 `schema.sql`，并确保
+  `PRAGMA foreign_keys = ON`；连接按名称隔离，测试/多模块可并行打开互不干扰；
+- 事务：`StationStore::runInTransaction` 提供“回调成功提交、失败整体回滚”，
+  新增电站/批量生成电桩等写操作不再允许“写一半”；
+- 健康检查：`StationStore::integrityCheck` 执行 `PRAGMA integrity_check`；
+- 备份：`StationStore::backupTo` 用 `VACUUM INTO` 生成一致性快照，
+  路径含单引号等危险字符会被拒绝；
+- 统一写入口：`StationStore::execPrepared(sql, binds)` 强制 prepare + bindValue，
+  禁止把用户输入拼进 SQL 字符串。
+
+### 数据安全规则（NO.15）
+
+1. **参数校验前置**：业务输入先经统一规则（手机号/长度/数值区间/枚举，
+   见 `common/protocol.h` 的 `cp::Validate`），数据库层再以 CHECK 兜底；
+2. **防注入**：所有数据 SQL 使用占位符绑定；表名/列名等标识符必须是代码内常量，
+   不允许由外部输入直接拼接；
+3. **权限控制**：应用层消息按 `cp::Role` 与 `messageAccessLevel` 白名单/角色矩阵
+   授权后再落库（心跳/登录公开，用户业务需 user，管理/销售需 operator/admin）；
+4. **密码安全**：课程演示库仍用明文 `123456` 便于演示；合入真实部署前必须改为
+   加盐哈希（如 PBKDF2/SHA-256），schema 中 `password` 字段只存哈希，不存原文。
+
+## 七、自动化测试
 
 数据库契约/一致性/索引测试位于 `src/pcserver/tests/schema_tests.pro`：
 
@@ -102,3 +125,6 @@ qmake6 <仓库>/src/pcserver/tests/schema_tests.pro && make && ./tst_schema
 
 覆盖：五表存在/主键/列类型、外键声明、UNIQUE、CHECK、订单电站一致性触发器、
 电站删除级联、索引列与 `EXPLAIN QUERY PLAN` 命中。
+
+数据库管理与防注入用例位于 `src/pcserver/tests/stationstore_tests.pro`
+（事务回滚/完整性/备份/危险路径拒绝/注入字符串仅存为数据）。
