@@ -5,9 +5,9 @@
 #include "stationdetailpage.h"
 #include "profilepage.h"
 #include "mappage.h"
-#include "servergateway.h"
-#include "common.h"
+#include "pcserver_session.h"
 
+#include <QDebug>
 #include <QStackedWidget>
 #include <QButtonGroup>
 #include <QPushButton>
@@ -57,61 +57,30 @@ MainWindow::MainWindow(QWidget *parent)
     showTab(0);
     m_navGroup->button(0)->setChecked(true);
 
-    // ---- 联调控制条（integration 分支）：连接/心跳/拉取电站/订单上报 ----
-    m_gateway = new ServerGateway(this);
-    auto *bar = new QWidget(statusBar());
-    auto *bl = new QHBoxLayout(bar);
-    bl->setContentsMargins(0, 2, 0, 2);
-    bl->setSpacing(6);
-    auto *hostEdit = new QLineEdit(QStringLiteral("127.0.0.1"), bar);
-    hostEdit->setFixedWidth(110);
-    auto *portSpin = new QSpinBox(bar);
-    portSpin->setRange(1024, 65535);
-    portSpin->setValue(kDefaultPort);
-    portSpin->setFixedWidth(80);
-    auto *btnConn = new QPushButton(QStringLiteral("连接"), bar);
-    auto *btnHeart = new QPushButton(QStringLiteral("心跳"), bar);
-    auto *btnFetch = new QPushButton(QStringLiteral("拉取电站"), bar);
-    auto *btnOrder = new QPushButton(QStringLiteral("上报订单(演示)"), bar);
-    auto *connLabel = new QLabel(QStringLiteral("未连接"), bar);
-    bl->addWidget(new QLabel(QStringLiteral("服务器"), bar));
-    bl->addWidget(hostEdit);
-    bl->addWidget(portSpin);
-    bl->addWidget(btnConn);
-    bl->addWidget(btnHeart);
-    bl->addWidget(btnFetch);
-    bl->addWidget(btnOrder);
-    bl->addWidget(connLabel);
-    statusBar()->addPermanentWidget(bar);
+    // 网络会话：启动后连接 127.0.0.1:9999，自动心跳并维持断线重连
+    m_serverSession = new userclient::PcServerSession(this);
+    connect(m_serverSession, &userclient::PcServerSession::connectedChanged,
+            this, [this](bool connected) {
+                if (connected) {
+                    qInfo().noquote()
+                        << QStringLiteral("[net] 用户端已连接 PcServer");
+                } else {
+                    qWarning().noquote()
+                        << QStringLiteral("[net] PcServer 连接已断开，进入退避重连");
+                }
+            });
+    m_serverSession->start();
+}
 
-    connect(btnConn, &QPushButton::clicked, this, [this, hostEdit, portSpin, btnConn]() {
-        if (m_gateway->isConnected()) {
-            m_gateway->disconnectFrom();
-            btnConn->setText(QStringLiteral("连接"));
-        } else {
-            m_gateway->connectTo(hostEdit->text().trimmed(),
-                                 static_cast<quint16>(portSpin->value()));
-        }
-    });
-    connect(btnHeart, &QPushButton::clicked, m_gateway, &ServerGateway::sendHeartbeat);
-    connect(btnFetch, &QPushButton::clicked, m_gateway, &ServerGateway::requestStations);
-    connect(btnOrder, &QPushButton::clicked, this, [this]() {
-        const QString orderNo = QStringLiteral("UC%1")
-                                    .arg(QDateTime::currentMSecsSinceEpoch());
-        // 演示上报固定桩 S02-P01（demo_seed 保证存在）；真实计费金额由充电流程填入
-        m_gateway->reportOrder(orderNo, QStringLiteral("S02-P01"), 12.5, 15.00);
-    });
-    connect(m_gateway, &ServerGateway::stateChanged, this,
-            [btnConn, connLabel](bool ok) {
-                btnConn->setText(ok ? QStringLiteral("断开") : QStringLiteral("连接"));
-                connLabel->setText(ok ? QStringLiteral("已连接") : QStringLiteral("未连接"));
-            });
-    connect(m_gateway, &ServerGateway::stationsReceived, this,
-            [connLabel](int total, int onSale) {
-                connLabel->setText(QStringLiteral("%1 站 / 特惠%2").arg(total).arg(onSale));
-            });
-    connect(m_gateway, &ServerGateway::logMessage, this,
-            [this](const QString &t) { statusBar()->showMessage(t, 4000); });
+MainWindow::~MainWindow()
+{
+    if (m_serverSession)
+        m_serverSession->stop();
+}
+
+userclient::PcServerSession *MainWindow::serverSession() const
+{
+    return m_serverSession;
 }
 
 void MainWindow::setupMainPage()
