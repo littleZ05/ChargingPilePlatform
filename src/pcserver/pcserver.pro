@@ -16,7 +16,9 @@ SOURCES += \
     mainwindow.cpp \
     stationstore.cpp \
     pricingservice.cpp \
-    selfhealservice.cpp
+    selfhealservice.cpp \
+    ../common/net_server.cpp \
+    ../common/packet_assembler.cpp
 
 HEADERS += \
     addstationdialog.h \
@@ -24,7 +26,9 @@ HEADERS += \
     stationstore.h \
     pricingservice.h \
     selfhealservice.h \
-    ../common/common.h
+    ../common/common.h \
+    ../common/net_server.h \
+    ../common/packet_assembler.h
 
 FORMS += \
     mainwindow.ui
