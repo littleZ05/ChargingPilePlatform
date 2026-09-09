@@ -161,7 +161,7 @@ void MapPage::fetchRoute()
         "?from=%1,%2&to=%3,%4&key=%5")
         .arg(gUserLocation.lat).arg(gUserLocation.lng)
         .arg(m_station.latitude).arg(m_station.longitude)
-        .arg(QLatin1String(kTencentMapKey));
+        .arg(tencentMapKey());
 
     QNetworkRequest req((QUrl(url)));
     req.setRawHeader("User-Agent", "UserClient/1.0");
@@ -249,7 +249,7 @@ QString MapPage::staticMapUrl() const
             QStringLiteral("color:0x0ea5e9|weight:5|") + pts.join(QLatin1Char('|')));
     }
 
-    query << QStringLiteral("key=%1").arg(QLatin1String(kTencentMapKey));
+    query << QStringLiteral("key=%1").arg(tencentMapKey());
 
     return QStringLiteral("https://apis.map.qq.com/ws/staticmap/v2/?")
            + query.join(QLatin1Char('&'));

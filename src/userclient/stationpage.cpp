@@ -103,7 +103,7 @@ void StationPage::relocate()
     QUrl url(QStringLiteral("https://apis.map.qq.com/ws/geocoder/v1/"));
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("address"), addr);
-    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    q.addQueryItem(QStringLiteral("key"), tencentMapKey());
     url.setQuery(q);
 
     QNetworkRequest req(url);
@@ -174,7 +174,7 @@ void StationPage::relocateByPlaceSearch(const QString &addr)
     q.addQueryItem(QStringLiteral("boundary"),
                    QStringLiteral("nearby(%1,%2,50000)").arg(gUserLocation.lat).arg(gUserLocation.lng));
     q.addQueryItem(QStringLiteral("page_size"), QStringLiteral("1"));
-    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    q.addQueryItem(QStringLiteral("key"), tencentMapKey());
     url.setQuery(q);
 
     QNetworkRequest req(url);
@@ -337,7 +337,7 @@ void StationPage::searchNearbyStations()
                    QStringLiteral("nearby(%1,%2,5000)").arg(gUserLocation.lat).arg(gUserLocation.lng));
     q.addQueryItem(QStringLiteral("orderby"), QStringLiteral("_distance"));
     q.addQueryItem(QStringLiteral("page_size"), QStringLiteral("20"));
-    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    q.addQueryItem(QStringLiteral("key"), tencentMapKey());
     url.setQuery(q);
 
     QNetworkRequest req(url);
@@ -398,7 +398,7 @@ void StationPage::locateByIp()
     ++m_ipSeq;
     QUrl url(QStringLiteral("https://apis.map.qq.com/ws/location/v1/ip"));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("key"), QLatin1String(kTencentMapKey));
+    q.addQueryItem(QStringLiteral("key"), tencentMapKey());
     url.setQuery(q);
 
     QNetworkRequest req(url);
