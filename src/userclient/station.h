@@ -99,16 +99,6 @@ inline QVector<Station> mockStations()
     return list;
 }
 
-/** 演示用充电订单（后续经 Socket 从服务器 orders 表获取） */
-inline QVector<Order> mockOrders()
-{
-    return {
-        { QStringLiteral("NO2025090501"), QStringLiteral("DS-01"), QStringLiteral("2025-09-05 10:24"), 30.00, 24.00, QStringLiteral("已结算") },
-        { QStringLiteral("NO2025090307"), QStringLiteral("AT-03"), QStringLiteral("2025-09-03 18:42"), 18.50, 16.28, QStringLiteral("已结算") },
-        { QStringLiteral("NO2025090112"), QStringLiteral("SJ-02"), QStringLiteral("2025-09-01 08:15"), 12.00, 11.40, QStringLiteral("已结算") },
-    };
-}
-
 /** 简单稳定哈希：让同一个真实充电站在不同运行中呈现一致的模拟状态。 */
 inline int stableHash(const QString &s, int lo, int hi)
 {

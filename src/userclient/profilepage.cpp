@@ -87,9 +87,15 @@ ProfilePage::ProfilePage(QWidget *parent)
     orderTitle->setStyleSheet(QStringLiteral("color:#ffffff; font-size:15px; font-weight:bold;"));
     v->addWidget(orderTitle);
 
-    for (const Order &o : mockOrders()) {
-        v->addWidget(makeOrderCard(o, content));
-    }
+    m_orderLayout = new QVBoxLayout;
+    m_orderLayout->setSpacing(8);
+    v->addLayout(m_orderLayout);
+
+    // 起始为空，仅展示真实充电操作产生的订单（不再显示 mock 假数据）
+    m_orderEmpty = new QLabel(QStringLiteral("暂无充电订单"), content);
+    m_orderEmpty->setObjectName(QStringLiteral("hintText"));
+    m_orderEmpty->setAlignment(Qt::AlignCenter);
+    m_orderLayout->addWidget(m_orderEmpty);
 
     // ---- 退出登录 ----
     auto *logoutBtn = new QPushButton(QStringLiteral("退出登录"), content);
@@ -139,6 +145,14 @@ void ProfilePage::setPhone(const QString &phone)
     if (phone.isEmpty()) return;
     m_phone = phone;
     m_phoneLabel->setText(m_phone);
+}
+
+void ProfilePage::addOrder(const Order &order)
+{
+    // 有真实订单后隐藏空提示，新订单插到列表最上方
+    if (m_orderEmpty)
+        m_orderEmpty->hide();
+    m_orderLayout->insertWidget(0, makeOrderCard(order, m_orderLayout->parentWidget()));
 }
 
 void ProfilePage::editProfile()
