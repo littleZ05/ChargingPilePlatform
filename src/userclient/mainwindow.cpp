@@ -5,12 +5,23 @@
 #include "stationdetailpage.h"
 #include "profilepage.h"
 #include "mappage.h"
+#include "pcserver_session.h"
 
+#include <QDebug>
 #include <QStackedWidget>
 #include <QButtonGroup>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QLabel>
+#include <QStatusBar>
+#include <QDateTime>
+
+namespace {
+constexpr int kDefaultPort = cp::kServerPort; // 9999
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -45,6 +56,31 @@ MainWindow::MainWindow(QWidget *parent)
 
     showTab(0);
     m_navGroup->button(0)->setChecked(true);
+
+    // 网络会话：启动后连接 127.0.0.1:9999，自动心跳并维持断线重连
+    m_serverSession = new userclient::PcServerSession(this);
+    connect(m_serverSession, &userclient::PcServerSession::connectedChanged,
+            this, [this](bool connected) {
+                if (connected) {
+                    qInfo().noquote()
+                        << QStringLiteral("[net] 用户端已连接 PcServer");
+                } else {
+                    qWarning().noquote()
+                        << QStringLiteral("[net] PcServer 连接已断开，进入退避重连");
+                }
+            });
+    m_serverSession->start();
+}
+
+MainWindow::~MainWindow()
+{
+    if (m_serverSession)
+        m_serverSession->stop();
+}
+
+userclient::PcServerSession *MainWindow::serverSession() const
+{
+    return m_serverSession;
 }
 
 void MainWindow::setupMainPage()
