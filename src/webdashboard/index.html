@@ -9,19 +9,19 @@
   <script src="./vendor/echarts.min.js"></script>
   <style>
     /* ============================================================
-       业务健康度与运营监控大屏 · Light Clean 主题
+       业务健康度与运营监控大屏 · 莫兰迪绿 极简主题（绿系深浅分层）
        ============================================================ */
     :root {
-      --bg:        #f4f6f9;
+      --bg:        #eef4f0;
       --surface:   #ffffff;
-      --border:    #e2e8f0;
-      --text:      #1e293b;
-      --muted:     #64748b;
-      --faint:     #94a3b8;
-      --blue:      #2563eb;
-      --green:     #10b981;
-      --red:       #ef4444;
-      --amber:     #f59e0b;
+      --border:    #dce7e1;
+      --text:      #2f463e;
+      --muted:     #6d8a80;
+      --faint:     #9cb6ac;
+      --blue:      #2f6b5c;
+      --green:     #77ae9f;
+      --red:       #1e4d40;
+      --amber:     #9cc5b6;
       --shadow:    0 2px 8px rgba(0, 0, 0, 0.04);
     }
 
@@ -69,7 +69,7 @@
       font-weight: 700;
       line-height: 1.25;
       letter-spacing: 0.5px;
-      color: #0f172a;
+      color: #263c34;
     }
 
     .clock {
@@ -131,19 +131,19 @@
       width: 4px;
       background: var(--blue);
     }
-    .kpi-card--total::before  { background: #2563eb; }
-    .kpi-card--health::before { background: #10b981; }
-    .kpi-card--load::before   { background: #0ea5e9; }
-    .kpi-card--danger::before { background: #ef4444; }
-    .kpi-card--revenue::before { background: #f59e0b; }
-    .kpi-card--forecast::before { background: #8b5cf6; }
+    .kpi-card--total::before  { background: #2f6b5c; }
+    .kpi-card--health::before { background: #77ae9f; }
+    .kpi-card--load::before   { background: #4e8f86; }
+    .kpi-card--danger::before { background: #1e4d40; }
+    .kpi-card--revenue::before { background: #9cc5b6; }
+    .kpi-card--forecast::before { background: #bcd9ce; }
 
     .kpi-label {
       font-size: 16px;
       font-weight: 600;
       letter-spacing: 0.5px;
       line-height: 1.3;
-      color: #334155;
+      color: #3b574d;
     }
     /* 卡片内容区：左侧大数字 + 右侧注释说明，横向分栏 */
     .kpi-main {
@@ -171,7 +171,7 @@
       font-variant-numeric: tabular-nums;
     }
     .kpi-card--danger .kpi-value { color: var(--red); }
-    .kpi-card--forecast .kpi-value { color: #7c3aed; }
+    .kpi-card--forecast .kpi-value { color: #4e8f86; }
     .kpi-unit {
       font-size: 16px;
       font-weight: 600;
@@ -221,7 +221,7 @@
       gap: 4px 14px;
       flex: 0 0 auto;
       padding: 10px 16px;
-      border-bottom: 1px solid #eef2f7;
+      border-bottom: 1px solid #e9f1ed;
     }
     .panel-title {
       font-size: 20px;
@@ -259,10 +259,61 @@
     }
     .footer b { color: var(--muted); font-weight: 600; }
 
-    ::selection { background: rgba(37, 99, 235, 0.14); }
+    /* ---------------- 书签分页导航 ---------------- */
+    .bookmarks {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 12px;
+      padding: 5px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .bookmarks .bm {
+      border: 0;
+      background: transparent;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--muted);
+      padding: 8px 22px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+    }
+    .bookmarks .bm:hover { color: #24584b; background: #eef5f1; }
+    .bookmarks .bm.active {
+      color: #ffffff;
+      background: linear-gradient(135deg, #24584b, #2f6b5c);
+      box-shadow: 0 6px 16px rgba(47, 107, 92, 0.25);
+    }
+
+    /* 分页容器：同一时刻只展示一页，切换时淡入 */
+    .page {
+      display: none;
+      flex: 1 1 auto;
+      min-height: 0;
+      flex-direction: column;
+    }
+    .page.active {
+      display: flex;
+      animation: pageIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1);
+    }
+    .page > .panel { flex: 1 1 auto; min-height: 0; }
+    @keyframes pageIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    ::selection { background: rgba(78, 143, 134, 0.14); }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
-    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #d5e3dc; border-radius: 8px; }
+    ::-webkit-scrollbar-track { background: #eef5f1; }
 
     /* ---------------- 自适应断点 ---------------- */
     @media (max-width: 1500px) {
@@ -335,78 +386,84 @@
     </header>
 
     <main>
-      <!-- ================= KPI 指标看板 ================= -->
-      <section class="kpi-grid" aria-label="关键指标">
-        <article class="kpi-card kpi-card--total">
-          <div class="kpi-label">设备规模</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiTotalValue" data-count="128" data-decimals="0">0</span>
-              <span class="kpi-unit">台</span>
-            </div>
-            <div class="kpi-sub" id="kpiSubTotal">已接入全部充电站点</div>
-          </div>
-        </article>
+      <!-- ================= 顶部书签分页导航 ================= -->
+      <nav class="bookmarks" id="bookmarks" aria-label="大屏分页导航">
+        <button class="bm active" type="button" data-page="overview">总览</button>
+        <button class="bm" type="button" data-page="load">负荷预测</button>
+        <button class="bm" type="button" data-page="revenue">营收订单</button>
+      </nav>
 
-        <article class="kpi-card kpi-card--health">
-          <div class="kpi-label">实时健康率</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiHealthValue" data-count="96.9" data-decimals="1">0</span>
-              <span class="kpi-unit">%</span>
+      <!-- ================= 分页 1：总览（KPI 指标 + 桩态分布） ================= -->
+      <section class="page active" id="page-overview" aria-label="总览">
+        <section class="kpi-grid" aria-label="关键指标">
+          <article class="kpi-card kpi-card--total">
+            <div class="kpi-label">设备规模</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiTotalValue" data-count="128" data-decimals="0">0</span>
+                <span class="kpi-unit">台</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubTotal">已接入全部充电站点</div>
             </div>
-            <div class="kpi-sub" id="kpiSubHealth">健康桩 124 / 128</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--danger">
-          <div class="kpi-label">异常/待检修</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiFaultValue" data-count="4" data-decimals="0">0</span>
-              <span class="kpi-unit">台</span>
+          <article class="kpi-card kpi-card--health">
+            <div class="kpi-label">实时健康率</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiHealthValue" data-count="96.9" data-decimals="1">0</span>
+                <span class="kpi-unit">%</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubHealth">健康桩 124 / 128</div>
             </div>
-            <div class="kpi-sub" id="kpiSubFault">故障桩 state=2 · 待自愈/检修</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--revenue">
-          <div class="kpi-label">今日营收</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiRevenueValue" data-count="0" data-decimals="0">0</span>
-              <span class="kpi-unit">元</span>
+          <article class="kpi-card kpi-card--danger">
+            <div class="kpi-label">异常/待检修</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiFaultValue" data-count="4" data-decimals="0">0</span>
+                <span class="kpi-unit">台</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubFault">故障桩 state=2 · 待自愈/检修</div>
             </div>
-            <div class="kpi-sub" id="kpiSubRevenue">今日已完成 0 单</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--load">
-          <div class="kpi-label">实时总负荷</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiLoadValue" data-count="0" data-decimals="0">0</span>
-              <span class="kpi-unit">kW</span>
+          <article class="kpi-card kpi-card--revenue">
+            <div class="kpi-label">今日营收</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiRevenueValue" data-count="0" data-decimals="0">0</span>
+                <span class="kpi-unit">元</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubRevenue">今日已完成 0 单</div>
             </div>
-            <div class="kpi-sub" id="kpiSubLoad">今日累计用电 0 kWh</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--forecast">
-          <div class="kpi-label">未来 6h 预测峰值</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
-              <span class="kpi-unit">kW</span>
+          <article class="kpi-card kpi-card--load">
+            <div class="kpi-label">实时总负荷</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiLoadValue" data-count="0" data-decimals="0">0</span>
+                <span class="kpi-unit">kW</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubLoad">今日累计用电 0 kWh</div>
             </div>
-            <div class="kpi-sub" id="kpiSubForecast">NO.17 OLS · 趋势 --</div>
-          </div>
-        </article>
-      </section>
+          </article>
 
-      <!-- ================= 核心图表区 ================= -->
-      <section class="chart-grid" aria-label="核心监控图表">
-        <!-- 图表 1：电桩实时运行状态分布（piles.state：0 闲置 / 1 充电中 / 2 故障） -->
+          <article class="kpi-card kpi-card--forecast">
+            <div class="kpi-label">未来 6h 预测峰值</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
+                <span class="kpi-unit">kW</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubForecast">NO.17 OLS · 趋势 --</div>
+            </div>
+          </article>
+        </section>
+
+        <!-- 图表：电桩实时运行状态分布（piles.state：0 闲置 / 1 充电中 / 2 故障） -->
         <article class="panel panel--state">
           <header class="panel-head">
             <h2 class="panel-title">电桩实时运行状态分布</h2>
@@ -416,19 +473,23 @@
             <div id="chartPileState" class="chart-host"></div>
           </div>
         </article>
+      </section>
 
-        <!-- 图表 2：近24h 滚动负荷（真实聚合优先） + 未来6h OLS 预测 -->
+      <!-- ================= 分页 2：负荷预测 ================= -->
+      <section class="page" id="page-load" aria-label="负荷预测">
         <article class="panel panel--load">
           <header class="panel-head">
             <h2 class="panel-title">近24小时充电负荷与未来6小时预测</h2>
-            <span class="panel-note">蓝实线=历史实测 · 橙虚线=预测 · 单位 kW</span>
+            <span class="panel-note">绿实线=历史实测 · 绿虚线=预测 · 单位 kW</span>
           </header>
           <div class="panel-body">
             <div id="chartLoad24h" class="chart-host"></div>
           </div>
         </article>
+      </section>
 
-        <!-- 图表 3：近 7 日运营营收与订单趋势 -->
+      <!-- ================= 分页 3：营收订单 ================= -->
+      <section class="page" id="page-revenue" aria-label="营收订单">
         <article class="panel panel--revenue">
           <header class="panel-head">
             <h2 class="panel-title">近 7 日运营营收与订单趋势</h2>
@@ -498,19 +559,19 @@
       };
 
       var PALETTE = {
-        blue:   '#2563eb',
-        sky:    '#0ea5e9',
-        green:  '#10b981',
-        red:    '#ef4444',
-        amber:  '#f59e0b',
-        text:   '#1e293b',
-        muted:  '#64748b',
-        faint:  '#94a3b8',
-        grid:   '#e2e8f0',
-        axis:   '#cbd5e1',
-        violet: '#8b5cf6',
+        blue:   '#2f6b5c',
+        sky:    '#4e8f86',
+        green:  '#77ae9f',
+        red:    '#1e4d40',
+        amber:  '#9cc5b6',
+        text:   '#2f463e',
+        muted:  '#6d8a80',
+        faint:  '#9cb6ac',
+        grid:   '#dce7e1',
+        axis:   '#d5e3dc',
+        violet: '#bcd9ce',
         tooltipBg: '#ffffff',
-        tooltipBorder: '#e2e8f0'
+        tooltipBorder: '#dce7e1'
       };
 
       var echarts = window.echarts;
@@ -832,9 +893,9 @@
           itemStyle: { color: PALETTE.blue },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(37, 99, 235, 0.18)' },
-              { offset: 0.55, color: 'rgba(37, 99, 235, 0.05)' },
-              { offset: 1, color: 'rgba(37, 99, 235, 0)' }
+              { offset: 0, color: 'rgba(47, 107, 92, 0.18)' },
+              { offset: 0.55, color: 'rgba(47, 107, 92, 0.05)' },
+              { offset: 1, color: 'rgba(47, 107, 92, 0)' }
             ])
           },
           markPoint: {
@@ -871,7 +932,7 @@
               type: 'cross',
               lineStyle: { color: PALETTE.faint, type: 'dashed' },
               crossStyle: { color: PALETTE.muted },
-              label: { backgroundColor: '#334155', color: '#ffffff', fontSize: 13 }
+              label: { backgroundColor: '#3b574d', color: '#ffffff', fontSize: 13 }
             },
             formatter: function (params) {
               var lines = ['<b>' + params[0].axisValue + '</b>'];
@@ -952,7 +1013,7 @@
             axisPointer: {
               type: 'cross',
               lineStyle: { color: PALETTE.faint, type: 'dashed' },
-              label: { backgroundColor: '#334155', color: '#ffffff', fontSize: 13 }
+              label: { backgroundColor: '#3b574d', color: '#ffffff', fontSize: 13 }
             }
           }),
           legend: {
@@ -1006,9 +1067,9 @@
               itemStyle: {
                 borderRadius: [6, 6, 0, 0],
                 color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: '#60a5fa' },
-                  { offset: 0.55, color: '#2563eb' },
-                  { offset: 1, color: '#1e40af' }
+                  { offset: 0, color: '#7fb6aa' },
+                  { offset: 0.55, color: '#2f6b5c' },
+                  { offset: 1, color: '#24584b' }
                 ])
               },
               tooltip: { valueFormatter: function (v) { return fmtNumber(v, 0) + ' 元'; } },
@@ -1017,7 +1078,7 @@
                 silent: true,
                 lineStyle: {
                   type: 'dashed',
-                  color: '#94a3b8',
+                  color: '#9cb6ac',
                   width: 1
                 },
                 label: {
@@ -1043,8 +1104,8 @@
               itemStyle: { color: PALETTE.amber, borderColor: '#ffffff', borderWidth: 2 },
               areaStyle: {
                 color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: 'rgba(245, 158, 11, 0.14)' },
-                  { offset: 1, color: 'rgba(245, 158, 11, 0)' }
+                  { offset: 0, color: 'rgba(156, 197, 182, 0.14)' },
+                  { offset: 1, color: 'rgba(156, 197, 182, 0)' }
                 ])
               },
               tooltip: { valueFormatter: function (v) { return v + ' 单'; } }
@@ -1229,11 +1290,42 @@
           });
       }
 
+      /* ---------------- 书签分页切换 ---------------- */
+      function resizeCharts() {
+        instances.forEach(function (inst) {
+          try { inst.resize(); } catch (err) { /* 跳过未初始化完成的实例 */ }
+        });
+      }
+
+      function setupBookmarks() {
+        var nav = $('bookmarks');
+        if (!nav) { return; }
+        nav.addEventListener('click', function (ev) {
+          var btn = (ev.target && ev.target.closest)
+                    ? ev.target.closest('.bm') : null;
+          if (!btn) { return; }
+          var target = btn.getAttribute('data-page');
+
+          var tabs = nav.querySelectorAll('.bm');
+          for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('active', tabs[i] === btn);
+          }
+          var pages = document.querySelectorAll('.page');
+          for (var j = 0; j < pages.length; j++) {
+            pages[j].classList.toggle('active', pages[j].id === 'page-' + target);
+          }
+          // 分页内的图表在隐藏时被初始化为 0 尺寸，切回可见后必须 resize 才能绘制
+          resizeCharts();
+          window.requestAnimationFrame(resizeCharts);
+          window.setTimeout(resizeCharts, 160);
+        });
+      }
+
       function boot() {
         if (!window.echarts) {
           var hosts = document.querySelectorAll('.chart-host');
           Array.prototype.forEach.call(hosts, function (host) {
-            host.innerHTML = '<p style="color:#dc2626;padding:24px;text-align:center;">' +
+            host.innerHTML = '<p style="color:#1e4d40;padding:24px;text-align:center;">' +
                              'ECharts 加载失败：请确认 ./vendor/echarts.min.js 存在。</p>';
           });
           return;
@@ -1243,6 +1335,7 @@
         setSnapshotTime(nowText());
         setDataSource('PcServer 未连接 · 离线演示数据');
         renderAllCharts();
+        setupBookmarks();
         fetchDashboardOnce();
         window.setInterval(fetchDashboardOnce, REFRESH_MS);
       }
