@@ -259,6 +259,57 @@
     }
     .footer b { color: var(--muted); font-weight: 600; }
 
+    /* ---------------- 书签分页导航 ---------------- */
+    .bookmarks {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 12px;
+      padding: 5px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .bookmarks .bm {
+      border: 0;
+      background: transparent;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--muted);
+      padding: 8px 22px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+    }
+    .bookmarks .bm:hover { color: #24584b; background: #eef5f1; }
+    .bookmarks .bm.active {
+      color: #ffffff;
+      background: linear-gradient(135deg, #24584b, #2f6b5c);
+      box-shadow: 0 6px 16px rgba(47, 107, 92, 0.25);
+    }
+
+    /* 分页容器：同一时刻只展示一页，切换时淡入 */
+    .page {
+      display: none;
+      flex: 1 1 auto;
+      min-height: 0;
+      flex-direction: column;
+    }
+    .page.active {
+      display: flex;
+      animation: pageIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1);
+    }
+    .page > .panel { flex: 1 1 auto; min-height: 0; }
+    @keyframes pageIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: none; }
+    }
+
     ::selection { background: rgba(78, 143, 134, 0.14); }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-thumb { background: #d5e3dc; border-radius: 8px; }
@@ -335,78 +386,84 @@
     </header>
 
     <main>
-      <!-- ================= KPI 指标看板 ================= -->
-      <section class="kpi-grid" aria-label="关键指标">
-        <article class="kpi-card kpi-card--total">
-          <div class="kpi-label">设备规模</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiTotalValue" data-count="128" data-decimals="0">0</span>
-              <span class="kpi-unit">台</span>
-            </div>
-            <div class="kpi-sub" id="kpiSubTotal">已接入全部充电站点</div>
-          </div>
-        </article>
+      <!-- ================= 顶部书签分页导航 ================= -->
+      <nav class="bookmarks" id="bookmarks" aria-label="大屏分页导航">
+        <button class="bm active" type="button" data-page="overview">总览</button>
+        <button class="bm" type="button" data-page="load">负荷预测</button>
+        <button class="bm" type="button" data-page="revenue">营收订单</button>
+      </nav>
 
-        <article class="kpi-card kpi-card--health">
-          <div class="kpi-label">实时健康率</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiHealthValue" data-count="96.9" data-decimals="1">0</span>
-              <span class="kpi-unit">%</span>
+      <!-- ================= 分页 1：总览（KPI 指标 + 桩态分布） ================= -->
+      <section class="page active" id="page-overview" aria-label="总览">
+        <section class="kpi-grid" aria-label="关键指标">
+          <article class="kpi-card kpi-card--total">
+            <div class="kpi-label">设备规模</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiTotalValue" data-count="128" data-decimals="0">0</span>
+                <span class="kpi-unit">台</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubTotal">已接入全部充电站点</div>
             </div>
-            <div class="kpi-sub" id="kpiSubHealth">健康桩 124 / 128</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--danger">
-          <div class="kpi-label">异常/待检修</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiFaultValue" data-count="4" data-decimals="0">0</span>
-              <span class="kpi-unit">台</span>
+          <article class="kpi-card kpi-card--health">
+            <div class="kpi-label">实时健康率</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiHealthValue" data-count="96.9" data-decimals="1">0</span>
+                <span class="kpi-unit">%</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubHealth">健康桩 124 / 128</div>
             </div>
-            <div class="kpi-sub" id="kpiSubFault">故障桩 state=2 · 待自愈/检修</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--revenue">
-          <div class="kpi-label">今日营收</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiRevenueValue" data-count="0" data-decimals="0">0</span>
-              <span class="kpi-unit">元</span>
+          <article class="kpi-card kpi-card--danger">
+            <div class="kpi-label">异常/待检修</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiFaultValue" data-count="4" data-decimals="0">0</span>
+                <span class="kpi-unit">台</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubFault">故障桩 state=2 · 待自愈/检修</div>
             </div>
-            <div class="kpi-sub" id="kpiSubRevenue">今日已完成 0 单</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--load">
-          <div class="kpi-label">实时总负荷</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiLoadValue" data-count="0" data-decimals="0">0</span>
-              <span class="kpi-unit">kW</span>
+          <article class="kpi-card kpi-card--revenue">
+            <div class="kpi-label">今日营收</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiRevenueValue" data-count="0" data-decimals="0">0</span>
+                <span class="kpi-unit">元</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubRevenue">今日已完成 0 单</div>
             </div>
-            <div class="kpi-sub" id="kpiSubLoad">今日累计用电 0 kWh</div>
-          </div>
-        </article>
+          </article>
 
-        <article class="kpi-card kpi-card--forecast">
-          <div class="kpi-label">未来 6h 预测峰值</div>
-          <div class="kpi-main">
-            <div class="kpi-value-row">
-              <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
-              <span class="kpi-unit">kW</span>
+          <article class="kpi-card kpi-card--load">
+            <div class="kpi-label">实时总负荷</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiLoadValue" data-count="0" data-decimals="0">0</span>
+                <span class="kpi-unit">kW</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubLoad">今日累计用电 0 kWh</div>
             </div>
-            <div class="kpi-sub" id="kpiSubForecast">NO.17 OLS · 趋势 --</div>
-          </div>
-        </article>
-      </section>
+          </article>
 
-      <!-- ================= 核心图表区 ================= -->
-      <section class="chart-grid" aria-label="核心监控图表">
-        <!-- 图表 1：电桩实时运行状态分布（piles.state：0 闲置 / 1 充电中 / 2 故障） -->
+          <article class="kpi-card kpi-card--forecast">
+            <div class="kpi-label">未来 6h 预测峰值</div>
+            <div class="kpi-main">
+              <div class="kpi-value-row">
+                <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
+                <span class="kpi-unit">kW</span>
+              </div>
+              <div class="kpi-sub" id="kpiSubForecast">NO.17 OLS · 趋势 --</div>
+            </div>
+          </article>
+        </section>
+
+        <!-- 图表：电桩实时运行状态分布（piles.state：0 闲置 / 1 充电中 / 2 故障） -->
         <article class="panel panel--state">
           <header class="panel-head">
             <h2 class="panel-title">电桩实时运行状态分布</h2>
@@ -416,19 +473,23 @@
             <div id="chartPileState" class="chart-host"></div>
           </div>
         </article>
+      </section>
 
-        <!-- 图表 2：近24h 滚动负荷（真实聚合优先） + 未来6h OLS 预测 -->
+      <!-- ================= 分页 2：负荷预测 ================= -->
+      <section class="page" id="page-load" aria-label="负荷预测">
         <article class="panel panel--load">
           <header class="panel-head">
             <h2 class="panel-title">近24小时充电负荷与未来6小时预测</h2>
-            <span class="panel-note">蓝实线=历史实测 · 橙虚线=预测 · 单位 kW</span>
+            <span class="panel-note">绿实线=历史实测 · 绿虚线=预测 · 单位 kW</span>
           </header>
           <div class="panel-body">
             <div id="chartLoad24h" class="chart-host"></div>
           </div>
         </article>
+      </section>
 
-        <!-- 图表 3：近 7 日运营营收与订单趋势 -->
+      <!-- ================= 分页 3：营收订单 ================= -->
+      <section class="page" id="page-revenue" aria-label="营收订单">
         <article class="panel panel--revenue">
           <header class="panel-head">
             <h2 class="panel-title">近 7 日运营营收与订单趋势</h2>
@@ -1229,6 +1290,37 @@
           });
       }
 
+      /* ---------------- 书签分页切换 ---------------- */
+      function resizeCharts() {
+        instances.forEach(function (inst) {
+          try { inst.resize(); } catch (err) { /* 跳过未初始化完成的实例 */ }
+        });
+      }
+
+      function setupBookmarks() {
+        var nav = $('bookmarks');
+        if (!nav) { return; }
+        nav.addEventListener('click', function (ev) {
+          var btn = (ev.target && ev.target.closest)
+                    ? ev.target.closest('.bm') : null;
+          if (!btn) { return; }
+          var target = btn.getAttribute('data-page');
+
+          var tabs = nav.querySelectorAll('.bm');
+          for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('active', tabs[i] === btn);
+          }
+          var pages = document.querySelectorAll('.page');
+          for (var j = 0; j < pages.length; j++) {
+            pages[j].classList.toggle('active', pages[j].id === 'page-' + target);
+          }
+          // 分页内的图表在隐藏时被初始化为 0 尺寸，切回可见后必须 resize 才能绘制
+          resizeCharts();
+          window.requestAnimationFrame(resizeCharts);
+          window.setTimeout(resizeCharts, 160);
+        });
+      }
+
       function boot() {
         if (!window.echarts) {
           var hosts = document.querySelectorAll('.chart-host');
@@ -1243,6 +1335,7 @@
         setSnapshotTime(nowText());
         setDataSource('PcServer 未连接 · 离线演示数据');
         renderAllCharts();
+        setupBookmarks();
         fetchDashboardOnce();
         window.setInterval(fetchDashboardOnce, REFRESH_MS);
       }
