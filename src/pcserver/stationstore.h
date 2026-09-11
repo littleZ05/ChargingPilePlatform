@@ -177,6 +177,20 @@ public:
                                    QString *error = nullptr);
 
     /**
+     * NO.4 充电建单（kStartCharge）：事务内校验用户与电桩，
+     * 写入 orders(state=0 充电中) 并把电桩置为「充电中」，同步刷新电站在线率。
+     * 这是结算（settleChargingOrderByCode）的前置条件，替代原先“用户端本地假充电”。
+     * priceOut 回填本次执行价 = 站基础价 × 当前生效折扣（创新点1 直接作用于结算单价）。
+     */
+    bool startChargingOrder(const QString &phone, const QString &pileCode,
+                            int *orderIdOut, int *stationIdOut, int *pileIdOut,
+                            double *priceOut, QString *error = nullptr);
+
+    /** 当前执行价（元/度）= 基础价 × 最新生效折扣；onSaleOut 回填是否处于闲时特惠 */
+    bool currentPriceOf(int stationId, double *priceOut, double *discountOut,
+                        bool *onSaleOut, QString *error = nullptr) const;
+
+    /**
      * 用户手机号登录（NO.6）：已注册返回既有用户；未注册自动创建
      * （昵称=用户+手机号后4位，余额0，状态正常）并标记 created。
      */
@@ -184,6 +198,13 @@ public:
                           QString *nicknameOut, double *balanceOut,
                           int *statusOut, bool *createdOut,
                           QString *error = nullptr);
+
+    /**
+     * NO.6 余额充值：真实落库（模拟支付成功），事务内累加 users.balance 并回读最新余额。
+     * 取代原先用户端「本地 m_balance += amount」的假充值。
+     */
+    bool rechargeBalance(const QString &phone, double amount,
+                         double *balanceOut, QString *error = nullptr);
 
     /** 输入校验：与新增电站共用一套规则，避免界面/数据层校验不一致 */
     static bool validateInput(const QString &name,

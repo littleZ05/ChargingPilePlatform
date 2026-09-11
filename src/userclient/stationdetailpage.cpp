@@ -185,6 +185,7 @@ void StationDetailPage::setStation(const Station &station)
     m_kwh = 0.0;
     m_activePile.clear();
     m_activePower = 0.0;
+    m_serverUnitPrice = 0.0;
 
     m_nameLabel->setText(station.name);
     m_addrLabel->setText(station.address);
@@ -225,7 +226,75 @@ void StationDetailPage::setServerSession(userclient::PcServerSession *session)
     if (m_session) {
         connect(m_session, &userclient::PcServerSession::orderReportResult,
                 this, &StationDetailPage::onOrderReportResult);
+        connect(m_session, &userclient::PcServerSession::startChargeResult,
+                this, &StationDetailPage::onStartChargeResult);
     }
+}
+
+void StationDetailPage::setPhone(const QString &phone)
+{
+    m_phone = phone;
+}
+
+void StationDetailPage::applyServerPiles(const QVector<userclient::ServerPile> &piles)
+{
+    if (piles.isEmpty())
+        return;   // 服务器未返回时保留本地占位列表
+
+    m_station.piles.clear();
+    for (const userclient::ServerPile &sp : piles) {
+        Pile p;
+        p.code    = sp.code;
+        p.type    = sp.type;
+        p.powerKw = sp.powerKw;
+        switch (sp.state) {
+        case 0:  p.state = QStringLiteral("空闲"); break;
+        case 1:  p.state = QStringLiteral("使用中"); break;
+        default: p.state = QStringLiteral("故障"); break;
+        }
+        m_station.piles.append(p);
+    }
+    m_station.totalPiles = m_station.piles.size();
+    int idle = 0;
+    for (const Pile &p : m_station.piles) {
+        if (p.state == QStringLiteral("空闲"))
+            ++idle;
+    }
+    m_station.idlePiles = idle;
+    if (m_pileTitle) {
+        m_pileTitle->setText(QStringLiteral("站内电桩 · 共%1桩 | 空闲%2（服务器实时数据）")
+                                 .arg(m_station.totalPiles)
+                                 .arg(m_station.idlePiles));
+    }
+    rebuildPiles();
+}
+
+void StationDetailPage::onStartChargeResult(int code, const QString &message,
+                                            const QString &pileCode, int orderId,
+                                            double unitPrice)
+{
+    if (code != 0) {
+        QMessageBox::warning(this, QStringLiteral("开始充电失败"),
+                             QStringLiteral("%1\n（错误码 %2）").arg(message).arg(code));
+        return;
+    }
+
+    m_charging = true;
+    m_activePile = pileCode.isEmpty() ? m_pendingPileCode : pileCode;
+    m_activePower = m_pendingPower > 0.0 ? m_pendingPower : defaultPower();
+    m_serverUnitPrice = unitPrice > 0.0 ? unitPrice : 0.0;
+    m_elapsedSec = 0;
+    m_kwh = 0.0;
+
+    m_chargingPile->setText(QStringLiteral("当前电桩：%1 · %2kW（服务器已建单 #%3）")
+                                .arg(m_activePile)
+                                .arg(QString::number(m_activePower, 'f', 0))
+                                .arg(orderId));
+    m_timeLabel->setText(QStringLiteral("00:00:00"));
+    m_kwhLabel->setText(QStringLiteral("已充 0.00 kWh"));
+    m_costLabel->setText(QStringLiteral("¥ 0.00"));
+    m_endBtn->setEnabled(true);
+    m_timer->start();
 }
 
 void StationDetailPage::rebuildPiles()
@@ -286,6 +355,24 @@ QWidget *StationDetailPage::makePileCard(const Pile &p)
 void StationDetailPage::startCharging(const Pile &pile)
 {
     if (!m_hasStation || m_charging) return;
+
+    // 真实链路优先：先向服务器发起建单（kStartCharge），服务器在事务内写入
+    // orders(state=0) 并把该桩置为「充电中」，同时返回本次执行价。
+    // 只有建单成功才开始计时；未连接服务器时才如实降级为本地演示并明确提示。
+    const bool online = (m_session && m_session->isConnected() && !m_phone.isEmpty());
+    if (online) {
+        m_pendingPileCode = pile.code;
+        m_pendingPower = pile.powerKw;
+        if (m_session->startCharge(m_phone, pile.code)) {
+            m_chargingPile->setText(QStringLiteral("正在向服务器建单：%1 …").arg(pile.code));
+            m_endBtn->setEnabled(false);
+            return;   // 结果由 onStartChargeResult 处理
+        }
+        QMessageBox::warning(this, QStringLiteral("无法开始充电"),
+                             QStringLiteral("建单请求发送失败，请稍后重试。"));
+        return;
+    }
+
     m_charging = true;
     m_activePile = pile.code;
     m_activePower = pile.powerKw;
@@ -367,7 +454,9 @@ void StationDetailPage::onTick()
 {
     ++m_elapsedSec;
     m_kwh += m_activePower / 3600.0;
-    const double cost = m_kwh * effectivePrice(m_station);
+    // 费用展示用服务器返回的执行价（含闲时折扣），与实际结算口径一致
+    const double unitPrice = m_serverUnitPrice > 0.0 ? m_serverUnitPrice : effectivePrice(m_station);
+    const double cost = m_kwh * unitPrice;
     m_timeLabel->setText(formatDuration(m_elapsedSec));
     m_kwhLabel->setText(QStringLiteral("已充 %1 kWh").arg(QString::number(m_kwh, 'f', 2)));
     m_costLabel->setText(QStringLiteral("¥ %1").arg(QString::number(cost, 'f', 2)));

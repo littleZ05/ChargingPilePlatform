@@ -68,6 +68,7 @@
 #include "dashboard_api.h"
 #include "loadforecast.h"
 #include "net_server.h"
+#include "opsconsole.h"
 #include "stationstore.h"
 #include "uitheme.h"
 
@@ -668,6 +669,17 @@ void fillLoadForecastChart(QChartView *view,
     view->setRenderHint(QPainter::Antialiasing, true);
 }
 
+/**
+ * P0 统一数据源：由 main.cpp 注入与 StationStore 完全相同的库路径。
+ * 注入后管理后台（登录/业绩/桩状态/桩管理/用户管理）与 Socket 服务、大屏 API、
+ * 定价引擎、自愈服务读写同一个 SQLite 文件，五端数据链路才真正闭环。
+ */
+QString &adminDbPathOverride()
+{
+    static QString path;
+    return path;
+}
+
 class DatabaseManager
 {
 public:
@@ -1074,6 +1086,10 @@ private:
 
     QString dbPath() const
     {
+        // P0 统一数据源：优先使用 main.cpp 注入的路径（与 StationStore 同一个库文件）
+        if (!adminDbPathOverride().isEmpty()) {
+            return adminDbPathOverride();
+        }
         // 测试/演示可用环境变量指定独立数据库，避免污染用户数据（默认不变）
         const QByteArray envPath = qgetenv("PCSERVER_DB_PATH");
         if (!envPath.isEmpty()) {
@@ -1668,6 +1684,11 @@ bool buildLoginDialog(QWidget *parent, QString *userName)
 
 namespace pcserver {
 
+void setAdminDatabasePath(const QString &path)
+{
+    adminDbPathOverride() = path;
+}
+
 bool showAdminLogin(QWidget *parent, QString *userName)
 {
     return buildLoginDialog(parent, userName);
@@ -2074,6 +2095,16 @@ void MainWindow::buildUi()
     manageLayout->addWidget(manageFormPanel, 0);
     manageLayout->addWidget(d->manageTable, 1);
     d->tabs->addTab(managePage, QStringLiteral("充电桩管理"));
+
+    // NO.20 / NO.21 / NO.22 / NO.23：运营控制台四个页签（张芮萌负责需求的前端落地）
+    d->tabs->addTab(new pcserver::PricingPolicyPanel(d->store, d->tabs),
+                    QStringLiteral("价格策略"));
+    d->tabs->addTab(new pcserver::SelfHealPanel(d->store, d->tabs),
+                    QStringLiteral("自愈告警"));
+    d->tabs->addTab(new pcserver::RunLogPanel(d->tabs),
+                    QStringLiteral("运行日志"));
+    d->tabs->addTab(new pcserver::SelfCheckPanel(d->store, d->tabs),
+                    QStringLiteral("交付自检"));
 
     connect(d->salesRangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshSales();
@@ -2569,7 +2600,13 @@ void MainWindow::setupStationPage()
         d->stationTimer = new QTimer(this);
         d->stationTimer->setInterval(3000);
         connect(d->stationTimer, &QTimer::timeout, this, &MainWindow::simulateRealtimeOnce);
-        d->stationTimer->start();
+        // 真实数据优先：默认不再随机翻转电桩状态（会污染大屏 KPI 与订单统计）。
+        // 仅当显式设置 PCSERVER_SIMULATE=1 时才启用演示用状态迁移。
+        if (qEnvironmentVariableIntValue("PCSERVER_SIMULATE")) {
+            d->stationTimer->start();
+            qInfo().noquote() << QStringLiteral(
+                "[演示] 已启用随机状态迁移（PCSERVER_SIMULATE=1）");
+        }
     }
 }
 
@@ -2916,6 +2953,19 @@ void MainWindow::sendSocketReply(QTcpSocket *client, quint16 msgType,
         qWarning() << "[net] 回包失败：服务端或客户端句柄不可用";
         return;
     }
+
+    // NO.20 全链路错误处理：协议层所有非 0 业务码统一留痕，
+    // 在「运行日志」页可直接查看（错误码 + 中文原因 + 消息类型）。
+    const int code = payload.value(QStringLiteral("code")).toInt(0);
+    if (code != 0) {
+        pcserver::RunLog::instance().append(
+            QStringLiteral("错误"),
+            QStringLiteral("[协议] MsgType=%1 code=%2 %3")
+                .arg(msgType)
+                .arg(code)
+                .arg(payload.value(QStringLiteral("message")).toString()));
+    }
+
     if (!d->netServer->sendPacket(client, msgType, socketJsonCompact(payload))) {
         qWarning() << "[net] 回包发送失败 msgType=" << msgType;
     }
@@ -2934,8 +2984,14 @@ void MainWindow::handleSocketPacket(QTcpSocket *client, quint16 msgType,
     case static_cast<quint16>(cp::MsgType::kOrderReport):
         handleOrderReportPacket(client, body);
         break;
+    case static_cast<quint16>(cp::MsgType::kStartCharge):
+        handleStartChargePacket(client, body);
+        break;
     case static_cast<quint16>(cp::MsgType::kLoginRequest):
         handleUserLoginPacket(client, body);
+        break;
+    case static_cast<quint16>(cp::MsgType::kRechargeRequest):
+        handleRechargePacket(client, body);
         break;
     default:
         qWarning() << "[net] 收到未注册 MsgType:" << msgType;
@@ -2963,6 +3019,51 @@ void MainWindow::handleHeartbeatPacket(QTcpSocket *client, const QByteArray &bod
     }
     sendSocketReply(client, static_cast<quint16>(cp::MsgType::kHeartbeat),
                     response);
+}
+
+void MainWindow::handleRechargePacket(QTcpSocket *client, const QByteArray &body)
+{
+    const auto msgType = static_cast<quint16>(cp::MsgType::kRechargeRequest);
+    QJsonObject request;
+    if (!parseSocketJsonObject(body, &request)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("充值负载必须是 JSON 对象")));
+        return;
+    }
+    const QString phone = request.value(QStringLiteral("phone")).toString().trimmed();
+    const double amount = request.value(QStringLiteral("amount")).toDouble(0.0);
+    if (phone.isEmpty()) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("充值缺少必填字段：phone")));
+        return;
+    }
+    if (!d->store || !d->store->isOpen()) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(503, QStringLiteral("用户服务未就绪")));
+        return;
+    }
+
+    double balance = 0.0;
+    QString error;
+    if (!d->store->rechargeBalance(phone, amount, &balance, &error)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            422, error.isEmpty() ? QStringLiteral("充值失败") : error));
+        return;
+    }
+
+    QJsonObject response = socketResponseEnvelope(0, QStringLiteral("充值成功"));
+    response.insert(QStringLiteral("phone"), phone);
+    response.insert(QStringLiteral("amount"), amount);
+    response.insert(QStringLiteral("balance"), balance);
+    sendSocketReply(client, msgType, response);
+
+    refreshUsers();
+    qInfo().noquote()
+        << QStringLiteral("[net][充值] phone=%1 +¥%2 余额=¥%3")
+               .arg(phone).arg(amount, 0, 'f', 2).arg(balance, 0, 'f', 2);
 }
 
 void MainWindow::handleUserLoginPacket(QTcpSocket *client,
@@ -3088,7 +3189,96 @@ void MainWindow::handleStationQueryPacket(QTcpSocket *client,
         socketResponseEnvelope(0, QStringLiteral("ok"));
     response.insert(QStringLiteral("total"), returned);
     response.insert(QStringLiteral("stations"), stationArray);
+
+    // 站内电桩明细：仅当请求指定了单个电站（station_id > 0）时返回数据库中的真实桩列表，
+    // 供用户端「电站详情」直接渲染 code/type/power_kw/state（取代原先的本地合成桩）。
+    if (stationId > 0) {
+        QJsonArray pileArray;
+        const QVector<pcserver::PileInfo> piles = d->store->listPiles(stationId);
+        for (const pcserver::PileInfo &pile : piles) {
+            QJsonObject item;
+            item.insert(QStringLiteral("id"), pile.id);
+            item.insert(QStringLiteral("station_id"), pile.stationId);
+            item.insert(QStringLiteral("code"), pile.code);
+            item.insert(QStringLiteral("type"), pile.type);
+            item.insert(QStringLiteral("power_kw"), pile.powerKw);
+            item.insert(QStringLiteral("state"), static_cast<int>(pile.state));
+            item.insert(QStringLiteral("state_text"), cp::pileStateText(pile.state));
+            item.insert(QStringLiteral("charge_count"), pile.chargeCount);
+            item.insert(QStringLiteral("charge_seconds"),
+                        static_cast<double>(pile.chargeSeconds));
+            pileArray.append(item);
+        }
+        response.insert(QStringLiteral("piles"), pileArray);
+        response.insert(QStringLiteral("piles_total"), pileArray.size());
+    }
+
     sendSocketReply(client, msgType, response);
+}
+
+void MainWindow::handleStartChargePacket(QTcpSocket *client,
+                                         const QByteArray &body)
+{
+    const auto msgType = static_cast<quint16>(cp::MsgType::kStartCharge);
+    QJsonObject request;
+    if (!parseSocketJsonObject(body, &request)) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("开始充电负载必须是 JSON 对象")));
+        return;
+    }
+
+    const QString phone = request.value(QStringLiteral("phone")).toString().trimmed();
+    const QString pileCode =
+        request.value(QStringLiteral("pile_code")).toString().trimmed();
+    if (phone.isEmpty() || pileCode.isEmpty()) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            400, QStringLiteral("开始充电缺少必填字段：phone / pile_code")));
+        return;
+    }
+    if (!d->store || !d->store->isOpen()) {
+        sendSocketReply(client, msgType,
+                        socketResponseEnvelope(
+                            503, QStringLiteral("数据服务未就绪")));
+        return;
+    }
+
+    int orderId = 0;
+    int stationId = 0;
+    int pileId = 0;
+    double unitPrice = 0.0;
+    QString error;
+    if (!d->store->startChargingOrder(phone, pileCode, &orderId, &stationId,
+                                      &pileId, &unitPrice, &error)) {
+        // 区分"资源不存在 / 权限受限 / 状态冲突"，便于用户端按错误码统一提示
+        int code = 409;
+        if (error.contains(QStringLiteral("不存在")))
+            code = 404;
+        else if (error.contains(QStringLiteral("冻结")))
+            code = 403;
+        sendSocketReply(client, msgType, socketResponseEnvelope(code, error));
+        return;
+    }
+
+    refreshAll();
+
+    QJsonObject response = socketResponseEnvelope(0, QStringLiteral("充电已开始"));
+    response.insert(QStringLiteral("order_id"), orderId);
+    response.insert(QStringLiteral("pile_code"), pileCode);
+    response.insert(QStringLiteral("pile_id"), pileId);
+    response.insert(QStringLiteral("station_id"), stationId);
+    response.insert(QStringLiteral("unit_price"), unitPrice);
+    response.insert(QStringLiteral("start_time"),
+                    QDateTime::currentDateTime()
+                        .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    sendSocketReply(client, msgType, response);
+
+    qInfo().noquote()
+        << QStringLiteral("[net][开始充电] phone=%1 pile=%2 单价=%3 元/度 order=%4")
+               .arg(phone, pileCode)
+               .arg(unitPrice, 0, 'f', 2)
+               .arg(orderId);
 }
 
 void MainWindow::handleOrderReportPacket(QTcpSocket *client,
@@ -3142,11 +3332,20 @@ void MainWindow::handleOrderReportPacket(QTcpSocket *client,
         return;
     }
 
+    // 结算金额由服务器按“当前执行价”重算：客户端上报的 amount 仅作对账参考。
+    // 这样创新点1 的闲时折扣才真正作用于资金结算，而不是前端自己算一套。
+    double unitPrice = (kwh > 0.0) ? amount / kwh : 0.0;
+    double discount = 1.0;
+    bool onSale = false;
+    QString priceError;
+    d->store->currentPriceOf(pile.stationId, &unitPrice, &discount, &onSale, &priceError);
+    const double settleAmount = std::round(kwh * unitPrice * 100.0) / 100.0;
+
     // 联调闭环：完成该桩“充电中”订单并落库（写订单/扣余额/更新桩累计）
     int orderId = 0;
     double balance = 0.0;
     QString settleError;
-    if (!d->store->settleChargingOrderByCode(pileCode, kwh, amount,
+    if (!d->store->settleChargingOrderByCode(pileCode, kwh, settleAmount,
                                              &orderId, &balance, &settleError)) {
         sendError(409, settleError.isEmpty()
                            ? QStringLiteral("结算失败")
@@ -3163,15 +3362,21 @@ void MainWindow::handleOrderReportPacket(QTcpSocket *client,
     response.insert(QStringLiteral("station_id"), pile.stationId);
     response.insert(QStringLiteral("order_id"), orderId);
     response.insert(QStringLiteral("kwh"), kwh);
-    response.insert(QStringLiteral("amount"), amount);
+    response.insert(QStringLiteral("amount"), settleAmount);
+    response.insert(QStringLiteral("amount_reported"), amount);
+    response.insert(QStringLiteral("unit_price"), unitPrice);
+    response.insert(QStringLiteral("discount"), discount);
+    response.insert(QStringLiteral("on_sale"), onSale);
     response.insert(QStringLiteral("balance"), balance);
     response.insert(QStringLiteral("received"), true);
     response.insert(QStringLiteral("pile_freed"), true);
     sendSocketReply(client, msgType, response);
 
     qInfo().noquote()
-        << QStringLiteral("[net][订单上报] order=%1 pile=%2 kwh=%3 amount=%4")
+        << QStringLiteral("[net][结算] order=%1 pile=%2 kwh=%3 单价=%4 元/度 折扣=%5 金额=%6 元")
                .arg(orderNo, pileCode)
                .arg(kwh, 0, 'f', 2)
-               .arg(amount, 0, 'f', 2);
+               .arg(unitPrice, 0, 'f', 2)
+               .arg(discount, 0, 'f', 2)
+               .arg(settleAmount, 0, 'f', 2);
 }

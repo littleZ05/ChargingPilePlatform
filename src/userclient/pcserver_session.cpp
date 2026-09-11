@@ -162,6 +162,67 @@ bool PcServerSession::queryStations(int stationId, int limit)
     return true;
 }
 
+bool PcServerSession::queryStationPiles(int stationId)
+{
+    if (stationId <= 0)
+        return false;
+    if (!m_running || !isConnected() || m_stationPilesPending)
+        return false;
+
+    QJsonObject request;
+    request.insert(QStringLiteral("station_id"), stationId);
+    request.insert(QStringLiteral("limit"), 1);
+
+    const auto msgType = static_cast<quint16>(cp::MsgType::kStationQuery);
+    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
+        qWarning() << "[userclient][net] kStationQuery(站内桩) 发送失败";
+        return false;
+    }
+    m_stationPilesPending = true;
+    return true;
+}
+
+bool PcServerSession::startCharge(const QString &phone, const QString &pileCode)
+{
+    if (!m_running || !isConnected() || m_startChargePending)
+        return false;
+    if (phone.trimmed().isEmpty() || pileCode.trimmed().isEmpty())
+        return false;
+
+    QJsonObject request;
+    request.insert(QStringLiteral("phone"), phone.trimmed());
+    request.insert(QStringLiteral("pile_code"), pileCode.trimmed());
+    request.insert(QStringLiteral("ts"), QDateTime::currentSecsSinceEpoch());
+
+    const auto msgType = static_cast<quint16>(cp::MsgType::kStartCharge);
+    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
+        qWarning() << "[userclient][net] kStartCharge 发送失败";
+        return false;
+    }
+    m_startChargePending = true;
+    return true;
+}
+
+bool PcServerSession::recharge(const QString &phone, double amount)
+{
+    if (!m_running || !isConnected() || m_rechargePending)
+        return false;
+    if (phone.trimmed().isEmpty() || !(amount > 0.0))
+        return false;
+
+    QJsonObject request;
+    request.insert(QStringLiteral("phone"), phone.trimmed());
+    request.insert(QStringLiteral("amount"), amount);
+
+    const auto msgType = static_cast<quint16>(cp::MsgType::kRechargeRequest);
+    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
+        qWarning() << "[userclient][net] kRechargeRequest 发送失败";
+        return false;
+    }
+    m_rechargePending = true;
+    return true;
+}
+
 bool PcServerSession::reportOrder(const QString &orderNo, const QString &pileCode,
                                   double kwh, double amount)
 {
@@ -287,6 +348,20 @@ void PcServerSession::onSocketError(const QString &errorString)
 
     if (m_stationQueryPending)
         notifyQueryFailed(QStringLiteral("连接错误：%1").arg(errorString));
+    if (m_stationPilesPending) {
+        m_stationPilesPending = false;
+        emit stationPilesReceived(-1, QStringLiteral("连接错误：%1").arg(errorString),
+                                  0, QVector<ServerPile>());
+    }
+    if (m_startChargePending) {
+        m_startChargePending = false;
+        emit startChargeResult(-1, QStringLiteral("连接错误：%1").arg(errorString),
+                               QString(), 0, 0.0);
+    }
+    if (m_rechargePending) {
+        m_rechargePending = false;
+        emit rechargeResult(-1, QStringLiteral("连接错误：%1").arg(errorString), 0.0, 0.0);
+    }
     if (m_orderReportPending)
         notifyOrderFailed(QStringLiteral("连接错误：%1").arg(errorString));
 
@@ -307,8 +382,14 @@ void PcServerSession::onPacketReceived(quint16 msgType, const QByteArray &body)
     case static_cast<quint16>(cp::MsgType::kOrderReport):
         handleOrderReportPacket(body);
         break;
+    case static_cast<quint16>(cp::MsgType::kStartCharge):
+        handleStartChargePacket(body);
+        break;
     case static_cast<quint16>(cp::MsgType::kLoginRequest):
         handleUserLoginPacket(body);
+        break;
+    case static_cast<quint16>(cp::MsgType::kRechargeRequest):
+        handleRechargePacket(body);
         break;
     default:
         qWarning() << "[userclient][net] 收到未注册 MsgType:" << msgType;
@@ -410,22 +491,62 @@ void PcServerSession::handleHeartbeatPacket(const QByteArray &body)
 
 void PcServerSession::handleStationQueryPacket(const QByteArray &body)
 {
-    if (!m_stationQueryPending) {
+    const bool pilesMode = m_stationPilesPending;
+    if (!m_stationQueryPending && !pilesMode) {
         qWarning() << "[userclient][net] 收到非预期的 kStationQuery 应答";
         return;
     }
     m_stationQueryPending = false;
+    m_stationPilesPending = false;
 
     QJsonObject response;
     if (!parseJsonObject(body, &response)) {
-        emit stationListReceived(
-            -1, QStringLiteral("电站查询应答不是 JSON 对象"),
-            QVector<ServerStation>());
+        if (pilesMode)
+            emit stationPilesReceived(-1, QStringLiteral("站内桩查询应答不是 JSON 对象"),
+                                      0, QVector<ServerPile>());
+        else
+            emit stationListReceived(-1, QStringLiteral("电站查询应答不是 JSON 对象"),
+                                     QVector<ServerStation>());
         return;
     }
 
     const int code = response.value(QStringLiteral("code")).toInt(-1);
     const QString message = response.value(QStringLiteral("message")).toString();
+
+    // 站内电桩明细应答（请求带 station_id，服务器额外返回 piles 数组）
+    if (pilesMode) {
+        int stationId = 0;
+        QVector<ServerPile> piles;
+        if (code == 0) {
+            const QJsonArray pileArray = response.value(QStringLiteral("piles")).toArray();
+            piles.reserve(pileArray.size());
+            for (const QJsonValue &value : pileArray) {
+                const QJsonObject object = value.toObject();
+                ServerPile pile;
+                pile.id            = object.value(QStringLiteral("id")).toInt();
+                pile.stationId     = object.value(QStringLiteral("station_id")).toInt();
+                pile.code          = object.value(QStringLiteral("code")).toString();
+                pile.type          = object.value(QStringLiteral("type")).toString();
+                pile.powerKw       = object.value(QStringLiteral("power_kw")).toDouble();
+                pile.state         = object.value(QStringLiteral("state")).toInt();
+                pile.chargeCount   = object.value(QStringLiteral("charge_count")).toInt();
+                pile.chargeSeconds =
+                    static_cast<qint64>(object.value(QStringLiteral("charge_seconds")).toDouble());
+                if (pile.stationId > 0)
+                    stationId = pile.stationId;
+                piles.append(pile);
+            }
+            if (stationId == 0) {
+                const QJsonArray stationArray =
+                    response.value(QStringLiteral("stations")).toArray();
+                if (!stationArray.isEmpty())
+                    stationId = stationArray.first().toObject()
+                                    .value(QStringLiteral("id")).toInt();
+            }
+        }
+        emit stationPilesReceived(code, message, stationId, piles);
+        return;
+    }
 
     QVector<ServerStation> stations;
     if (code == 0) {
@@ -461,6 +582,49 @@ void PcServerSession::notifyQueryFailed(const QString &reason)
         return;
     m_stationQueryPending = false;
     emit stationListReceived(-1, reason, QVector<ServerStation>());
+}
+
+void PcServerSession::handleRechargePacket(const QByteArray &body)
+{
+    if (!m_rechargePending) {
+        qWarning() << "[userclient][net] 收到非预期的 kRechargeRequest 应答";
+        return;
+    }
+    m_rechargePending = false;
+
+    QJsonObject response;
+    if (!parseJsonObject(body, &response)) {
+        emit rechargeResult(-1, QStringLiteral("充值应答不是 JSON 对象"), 0.0, 0.0);
+        return;
+    }
+    const int code = response.value(QStringLiteral("code")).toInt(-1);
+    const QString message = response.value(QStringLiteral("message")).toString();
+    const double amount = response.value(QStringLiteral("amount")).toDouble();
+    const double balance = response.value(QStringLiteral("balance")).toDouble();
+    emit rechargeResult(code, message, amount, balance);
+}
+
+void PcServerSession::handleStartChargePacket(const QByteArray &body)
+{
+    if (!m_startChargePending) {
+        qWarning() << "[userclient][net] 收到非预期的 kStartCharge 应答";
+        return;
+    }
+    m_startChargePending = false;
+
+    QJsonObject response;
+    if (!parseJsonObject(body, &response)) {
+        emit startChargeResult(-1, QStringLiteral("开始充电应答不是 JSON 对象"),
+                               QString(), 0, 0.0);
+        return;
+    }
+
+    const int code = response.value(QStringLiteral("code")).toInt(-1);
+    const QString message = response.value(QStringLiteral("message")).toString();
+    const QString pileCode = response.value(QStringLiteral("pile_code")).toString();
+    const int orderId = response.value(QStringLiteral("order_id")).toInt();
+    const double unitPrice = response.value(QStringLiteral("unit_price")).toDouble();
+    emit startChargeResult(code, message, pileCode, orderId, unitPrice);
 }
 
 void PcServerSession::handleOrderReportPacket(const QByteArray &body)

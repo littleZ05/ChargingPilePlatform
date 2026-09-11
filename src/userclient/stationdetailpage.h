@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include "station.h"
+#include "pcserver_session.h"
 
 class QLabel;
 class QPushButton;
@@ -25,6 +26,10 @@ public:
     void setStation(const Station &station);
     /** 注入应用级 PcServer 会话，用于「结束充电」时上报结算订单（NO.7 触发点） */
     void setServerSession(userclient::PcServerSession *session);
+    /** 当前登录手机号：发起充电建单（kStartCharge）必需 */
+    void setPhone(const QString &phone);
+    /** 服务器返回的真实站内电桩列表，取代本地合成桩 */
+    void applyServerPiles(const QVector<userclient::ServerPile> &piles);
 
 signals:
     void navigateRequested(const Station &station);
@@ -39,6 +44,9 @@ private slots:
     void onOrderReportResult(int code, const QString &message,
                              const QString &orderNo, const QString &pileCode,
                              bool received, bool pileFreed);
+    /** kStartCharge 应答：成功后服务器已建单（orders state=0）且电桩置「充电中」 */
+    void onStartChargeResult(int code, const QString &message, const QString &pileCode,
+                             int orderId, double unitPrice);
 
 private:
     double   defaultPower() const;
@@ -55,6 +63,10 @@ private:
     double  m_activePower = 0.0;
     userclient::PcServerSession *m_session = nullptr;
     QString m_pendingOrderNo;
+    QString m_phone;
+    QString m_pendingPileCode;
+    double  m_pendingPower = 0.0;
+    double  m_serverUnitPrice = 0.0;   // 服务器口径执行价（含闲时折扣），用于费用展示
 
     QVBoxLayout *m_pileLayout   = nullptr;
     QLabel      *m_nameLabel    = nullptr;

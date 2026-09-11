@@ -14,6 +14,13 @@ namespace pcserver { class DashboardApiServer; }
 
 namespace pcserver {
 
+/**
+ * P0 统一数据源：把管理后台（登录/业绩/桩状态/桩管理/用户管理）的库路径
+ * 对齐到 StationStore 使用的同一个 SQLite 文件，消除“双库分裂”。
+ * 必须在 showAdminLogin / MainWindow 构造之前调用。
+ */
+void setAdminDatabasePath(const QString &path);
+
 bool showAdminLogin(QWidget *parent, QString *userName);
 
 } // namespace pcserver
@@ -48,6 +55,8 @@ private:
     void handleHeartbeatPacket(QTcpSocket *client, const QByteArray &body);
     void handleStationQueryPacket(QTcpSocket *client, const QByteArray &body);
     void handleOrderReportPacket(QTcpSocket *client, const QByteArray &body);
+    void handleStartChargePacket(QTcpSocket *client, const QByteArray &body);
+    void handleRechargePacket(QTcpSocket *client, const QByteArray &body);
     void handleUserLoginPacket(QTcpSocket *client, const QByteArray &body);
     void refreshSales();
     void refreshPileStatus();

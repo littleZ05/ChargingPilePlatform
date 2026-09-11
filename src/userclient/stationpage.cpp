@@ -121,6 +121,7 @@ void StationPage::applyServerStations(
     m_stations.clear();
     for (const userclient::ServerStation &st : stations) {
         Station s;
+        s.id         = st.id;
         s.name       = st.name;
         s.address    = st.address;
         s.latitude   = st.latitude;
@@ -131,7 +132,8 @@ void StationPage::applyServerStations(
         s.onlineRate = st.onlineRate;
         s.serverSale = st.onSale;
         s.type       = QStringLiteral("快慢兼有");
-        s.pilePrefix = QStringLiteral("S%1").arg(st.id);
+        // 与数据库 piles.code 对齐：站点 S01 → S01-P01 / S01-P02 …
+        s.pilePrefix = QStringLiteral("S%1").arg(st.id, 2, 10, QLatin1Char('0'));
         s.piles      = buildPiles(s.pilePrefix, s.totalPiles, s.idlePiles,
                                   QStringLiteral("快充"));
         m_stations.append(s);

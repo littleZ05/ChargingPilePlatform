@@ -17,6 +17,7 @@ struct Pile {
 
 /** 充电站信息（对应数据库 stations 表，供用户端展示） */
 struct Station {
+    int     id         = 0;      // 服务器 station id（0 = 本地占位站，无后端数据）
     QString name;
     QString address;
     double  latitude   = 0.0;
@@ -59,7 +60,7 @@ inline QVector<Pile> buildPiles(const QString &prefix, int total, int idle, cons
     QVector<Pile> piles;
     for (int i = 1; i <= total; ++i) {
         Pile p;
-        p.code = QStringLiteral("%1-%2").arg(prefix).arg(i, 2, 10, QLatin1Char('0'));
+        p.code = QStringLiteral("%1-P%2").arg(prefix).arg(i, 2, 10, QLatin1Char('0'));
         const bool slow = (type == QStringLiteral("慢充"))
                        || (type == QStringLiteral("快慢兼有") && (i % 2 == 0));
         p.type = slow ? QStringLiteral("慢充") : QStringLiteral("快充");
@@ -148,7 +149,11 @@ inline double idleRateOf(const Station &s)
 /** 是否命中「闲时特惠」（空闲率超过阈值） */
 inline bool isOnSale(const Station &s)
 {
-    return s.serverSale || idleRateOf(s) > cp::Pricing::kIdleRateThreshold;
+    // 服务器数据优先：来自服务器的电站（id>0）一律以服务器特惠标记为准，
+    // 避免客户端按本地空闲率自行打折、导致展示价与服务器实际结算价不一致。
+    if (s.id > 0)
+        return s.serverSale;
+    return idleRateOf(s) > cp::Pricing::kIdleRateThreshold;
 }
 
 /** 计费单价（命中闲时特惠则打折） */
