@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS piles (
                   CHECK (power_kw > 0),
     state         INTEGER NOT NULL DEFAULT 0     -- 0 闲置/1 充电中/2 故障
                   CHECK (state IN (0, 1, 2)),
+    health_level  INTEGER NOT NULL DEFAULT 0     -- 创新点2 自愈分级：0 正常/1 预警(需检查)/2 故障
+                  CHECK (health_level IN (0, 1, 2)),
     charge_count  INTEGER NOT NULL DEFAULT 0     -- 累计充电次数
                   CHECK (charge_count >= 0),
     charge_seconds INTEGER NOT NULL DEFAULT 0    -- 累计充电时长(秒)
@@ -126,7 +128,23 @@ CREATE TABLE IF NOT EXISTS marketing_strategy (
     is_active    INTEGER NOT NULL DEFAULT 1,     -- 是否启用
     valid_from   TEXT,
     valid_to     TEXT,
+    predicted_idle_rate REAL NOT NULL DEFAULT 0, -- 创新点1：本次定价依据的预测空闲率(%)
+    decided_at   TEXT,                           -- 创新点1：策略引擎最近一次决策时间
     gmt_create   TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- 自愈事件留痕表（创新点2：异常检测与自愈动作可追溯，供服务器端"自愈告警"页展示）
+CREATE TABLE IF NOT EXISTS selfheal_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pile_id     INTEGER NOT NULL REFERENCES piles(id),
+    pile_code   TEXT,
+    station_id  INTEGER,
+    level       INTEGER NOT NULL DEFAULT 1,      -- 1 预警(需检查) / 2 故障
+    level_text  TEXT,
+    threshold   REAL NOT NULL DEFAULT 0,         -- 判定使用的低功率阈值(kW)
+    real_power  REAL NOT NULL DEFAULT 0,         -- 触发时的实测功率(kW)
+    action      TEXT,                            -- 引擎执行的动作
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 -- 电桩健康阈值表（创新点2：自愈告警，移动平均极差法阈值）
@@ -167,3 +185,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_state         ON orders(state);
 
 -- 用户：用户管理按状态筛选/冻结列表
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
+-- 自愈事件：按桩与时间检索（"自愈告警"页流水与最近事件查询）
+CREATE INDEX IF NOT EXISTS idx_selfheal_pile ON selfheal_events(pile_id);
+CREATE INDEX IF NOT EXISTS idx_selfheal_time ON selfheal_events(created_at);

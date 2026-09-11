@@ -280,3 +280,78 @@ cd /tmp/socketbiz-test
 qmake6 <仓库>/src/pcserver/tests/tst_socketbiz.pro && make
 QT_QPA_PLATFORM=offscreen ./tst_socketbiz
 ```
+
+---
+
+## 6. 消息类型补充（v1.1，2026-09-11）
+
+> 本次补充把"用户端本地模拟"改为"服务器真实建单"，并新增充值消息。
+> 所有应答仍使用与请求相同的 MsgType（帧头 type 字段），Body 为 UTF-8 JSON。
+
+### 6.1 开始充电 `kStartCharge = 4`（用户端 → 服务器）
+
+请求：
+
+```json
+{ "phone": "13800138001", "pile_code": "S01-P02", "ts": 1750000000 }
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `phone` | string | 是 | 用户手机号（必须先登录/自动注册） |
+| `pile_code` | string | 是 | 电桩编码（`piles.code`，如 `S01-P02`） |
+| `ts` | number | 否 | 客户端时刻（Unix 秒） |
+
+服务器处理（单事务）：
+
+1. 校验用户存在且 `users.status = 0`（冻结账号返回 `403`）；
+2. 校验电桩存在（否则 `404`）、非故障（否则 `409`）、非充电中（否则 `409`）；
+3. 校验该桩没有未完成订单（否则 `409`，防止重复建单）；
+4. 取本次执行价 = `stations.base_price × marketing_strategy.discount`（创新点① 直接作用于结算单价）；
+5. `INSERT orders(state=0, start_time=now)` → `UPDATE piles SET state=1` → 刷新电站在线率。
+
+响应：
+
+```json
+{ "code": 0, "message": "充电已开始", "order_id": 129,
+  "pile_code": "S01-P02", "station_id": 1, "unit_price": 0.96,
+  "start_time": "2026-09-11 23:23:52" }
+```
+
+### 6.2 订单结算金额改由服务器计算（`kOrderReport = 2` 行为修订）
+
+客户端上报的 `amount` 仅作对账参考，**结算金额以服务器口径为准**：
+
+`amount = round(kwh × stations.base_price × 生效折扣, 2)`
+
+响应新增字段：
+
+| 字段 | 说明 |
+|---|---|
+| `amount` | 服务器按折后执行价计算的**实际结算金额**（元） |
+| `amount_reported` | 客户端上报金额（对账用） |
+| `unit_price` | 本次执行价（元/度，含折扣） |
+| `discount` | 生效折扣（1.0 = 无折扣） |
+| `on_sale` | 是否处于闲时特惠 |
+
+余额不足时返回 `409` 与明确中文原因（`余额不足：当前 ¥x，本次需 ¥y，请先充值`），
+不再依赖 `balance >= 0` 约束抛出底层错误。
+
+### 6.3 余额充值 `kRechargeRequest = 30`（用户端 → 服务器）
+
+请求：`{ "phone": "13800138001", "amount": 100.0 }`
+
+服务器在同一事务内累加 `users.balance` 并回读最新余额；金额非法返回 `422`。
+
+响应：
+
+```json
+{ "code": 0, "message": "充值成功", "phone": "13800138001",
+  "amount": 100.0, "balance": 200.0 }
+```
+
+### 6.4 站内电桩明细（`kStationQuery = 1` 扩展）
+
+当请求带 `station_id > 0` 时，响应除 `stations[]` 外额外返回 `piles[]`，
+字段为数据库真实值：`id / station_id / code / type / power_kw / state / state_text / charge_count / charge_seconds`。
+用户端「电站详情」直接渲染该列表（取代此前按数量本地合成的桩列表）。

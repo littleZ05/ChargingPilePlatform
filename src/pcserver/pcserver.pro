@@ -17,6 +17,7 @@ SOURCES += \
     stationstore.cpp \
     pricingservice.cpp \
     selfhealservice.cpp \
+    opsconsole.cpp \
     uitheme.cpp \
     ../common/net_server.cpp \
     ../common/packet_assembler.cpp \
@@ -29,6 +30,7 @@ HEADERS += \
     stationstore.h \
     pricingservice.h \
     selfhealservice.h \
+    opsconsole.h \
     uitheme.h \
     ../common/common.h \
     ../common/net_server.h \

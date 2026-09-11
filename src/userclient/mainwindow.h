@@ -40,6 +40,7 @@ private slots:
 private:
     void setupMainPage();
     QString m_pendingLoginPhone;   // 登录时若尚未连接，待连接后补发 login/queryStations
+    int m_pendingPileStationId = -1;   // 正在等待站内桩明细的电站 id（用于丢弃过期应答）
 
     QStackedWidget    *m_root       = nullptr;
     QStackedWidget    *m_pageStack  = nullptr;

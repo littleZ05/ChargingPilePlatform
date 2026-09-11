@@ -18,6 +18,9 @@
 
 namespace {
 
+/** NO.6：手机号自动注册时赠送的演示初始余额（元），保证新用户可完成一次充电结算 */
+constexpr double kNewUserBonusYuan = 100.0;
+
 int nextConnectionSeq()
 {
     static int seq = 0;
@@ -311,6 +314,18 @@ bool StationStore::executeSchema(QString *error)
                              .arg(queryError(q), statement.trimmed());
             return false;
         }
+    }
+
+    // 增量迁移：为既有演示库补齐新增列（新建库时 schema.sql 已包含，执行会报"重复列"，
+    // 属幂等操作，忽略即可）。表级新增（selfheal_events）由上面 CREATE TABLE IF NOT EXISTS 覆盖。
+    const QStringList columnMigrations = {
+        QStringLiteral("ALTER TABLE marketing_strategy ADD COLUMN predicted_idle_rate REAL NOT NULL DEFAULT 0"),
+        QStringLiteral("ALTER TABLE marketing_strategy ADD COLUMN decided_at TEXT"),
+        QStringLiteral("ALTER TABLE piles ADD COLUMN health_level INTEGER NOT NULL DEFAULT 0")
+    };
+    for (const QString &sql : columnMigrations) {
+        QSqlQuery q(m_db);
+        q.exec(sql);
     }
     return true;
 }
@@ -954,6 +969,19 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
         }
 
         // 4) 扣减用户余额并取最新余额
+        //    先做余额校验：不足时给出明确业务原因，而不是让 balance>=0 约束抛底层错误
+        QSqlQuery balCheck(db);
+        balCheck.prepare(QStringLiteral("SELECT COALESCE(balance,0) FROM users WHERE id = ?"));
+        balCheck.addBindValue(userId);
+        const double currentBalance =
+            (balCheck.exec() && balCheck.next()) ? balCheck.value(0).toDouble() : 0.0;
+        if (currentBalance + 0.0001 < amount) {
+            innerErr = QStringLiteral("余额不足：当前 ¥%1，本次需 ¥%2，请先充值")
+                           .arg(currentBalance, 0, 'f', 2)
+                           .arg(amount, 0, 'f', 2);
+            return false;
+        }
+
         QSqlQuery bal(db);
         bal.prepare(QStringLiteral("UPDATE users SET balance = balance - ? WHERE id = ?"));
         bal.addBindValue(amount);
@@ -1012,6 +1040,143 @@ bool StationStore::settleChargingOrderByCode(const QString &pileCode, double kwh
     return true;
 }
 
+bool StationStore::currentPriceOf(int stationId, double *priceOut, double *discountOut,
+                                  bool *onSaleOut, QString *error) const
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT s.base_price, COALESCE(m.discount, 1.0) "
+        "FROM stations s LEFT JOIN marketing_strategy m "
+        "  ON m.station_id = s.id AND m.is_active = 1 "
+        "WHERE s.id = ? ORDER BY m.id DESC LIMIT 1"));
+    q.addBindValue(stationId);
+    if (!q.exec() || !q.next()) {
+        if (error)
+            *error = QStringLiteral("未找到电站：id=%1").arg(stationId);
+        return false;
+    }
+    const double base = q.value(0).toDouble();
+    double discount = q.value(1).toDouble();
+    if (discount <= 0.0)
+        discount = 1.0;
+    if (priceOut)    *priceOut = base * discount;
+    if (discountOut) *discountOut = discount;
+    if (onSaleOut)   *onSaleOut = discount < 0.999;
+    return true;
+}
+
+bool StationStore::startChargingOrder(const QString &phone, const QString &pileCode,
+                                      int *orderIdOut, int *stationIdOut, int *pileIdOut,
+                                      double *priceOut, QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    QString innerErr;
+    QString txnErr;
+    bool ok = runInTransaction([&](QSqlDatabase &db) {
+        QSqlQuery uq(db);
+        uq.prepare(QStringLiteral("SELECT id, COALESCE(status, 0) FROM users WHERE phone = ?"));
+        uq.addBindValue(phone);
+        if (!uq.exec() || !uq.next()) {
+            innerErr = QStringLiteral("用户不存在，请先登录：%1").arg(phone);
+            return false;
+        }
+        const int userId = uq.value(0).toInt();
+        if (uq.value(1).toInt() != 0) {
+            innerErr = QStringLiteral("账号已被冻结，无法发起充电（请联系管理员解冻）");
+            return false;
+        }
+
+        QSqlQuery pq(db);
+        pq.prepare(QStringLiteral("SELECT id, station_id, state FROM piles WHERE code = ?"));
+        pq.addBindValue(pileCode);
+        if (!pq.exec() || !pq.next()) {
+            innerErr = QStringLiteral("电桩编码不存在：%1").arg(pileCode);
+            return false;
+        }
+        const int pileId    = pq.value(0).toInt();
+        const int stationId = pq.value(1).toInt();
+        const int pileState = pq.value(2).toInt();
+        if (pileState == static_cast<int>(cp::PileState::Fault)) {
+            innerErr = QStringLiteral("电桩处于故障状态，无法发起充电：%1").arg(pileCode);
+            return false;
+        }
+        if (pileState == static_cast<int>(cp::PileState::Charging)) {
+            innerErr = QStringLiteral("电桩正在充电中，请选择其他空闲电桩：%1").arg(pileCode);
+            return false;
+        }
+
+        QSqlQuery openQ(db);
+        openQ.prepare(QStringLiteral(
+            "SELECT id FROM orders WHERE pile_id = ? AND state = 0 LIMIT 1"));
+        openQ.addBindValue(pileId);
+        if (openQ.exec() && openQ.next()) {
+            innerErr = QStringLiteral("该电桩存在未完成订单，请先结算");
+            return false;
+        }
+
+        // 本次执行价 = 站基础价 × 当前生效折扣（创新点1 直接参与结算）
+        QSqlQuery priceQ(db);
+        priceQ.prepare(QStringLiteral(
+            "SELECT s.base_price, COALESCE((SELECT m.discount FROM marketing_strategy m "
+            " WHERE m.station_id = s.id AND m.is_active = 1 ORDER BY m.id DESC LIMIT 1), 1.0) "
+            "FROM stations s WHERE s.id = ?"));
+        priceQ.addBindValue(stationId);
+        double unitPrice = 1.0;
+        if (priceQ.exec() && priceQ.next()) {
+            const double base = priceQ.value(0).toDouble();
+            double discount = priceQ.value(1).toDouble();
+            if (discount <= 0.0)
+                discount = 1.0;
+            unitPrice = base * discount;
+        }
+
+        QSqlQuery ins(db);
+        ins.prepare(QStringLiteral(
+            "INSERT INTO orders(user_id, pile_id, station_id, start_time, kwh, price, amount, state) "
+            "VALUES(?, ?, ?, datetime('now','localtime'), 0, ?, 0, 0)"));
+        ins.addBindValue(userId);
+        ins.addBindValue(pileId);
+        ins.addBindValue(stationId);
+        ins.addBindValue(unitPrice);
+        if (!ins.exec()) {
+            innerErr = QStringLiteral("充电建单失败：%1").arg(ins.lastError().text());
+            return false;
+        }
+        const int newOrderId = ins.lastInsertId().toInt();
+
+        QSqlQuery up(db);
+        up.prepare(QStringLiteral("UPDATE piles SET state = ? WHERE id = ?"));
+        up.addBindValue(static_cast<int>(cp::PileState::Charging));
+        up.addBindValue(pileId);
+        if (!up.exec()) {
+            innerErr = QStringLiteral("电桩状态更新失败：%1").arg(up.lastError().text());
+            return false;
+        }
+
+        if (!refreshOnlineRate(stationId, &innerErr))
+            return false;
+
+        if (orderIdOut)   *orderIdOut   = newOrderId;
+        if (stationIdOut) *stationIdOut = stationId;
+        if (pileIdOut)    *pileIdOut    = pileId;
+        if (priceOut)     *priceOut     = unitPrice;
+        return true;
+    }, &txnErr);
+
+    if (!ok) {
+        if (error)
+            *error = innerErr.isEmpty()
+                         ? (txnErr.isEmpty() ? QStringLiteral("充电建单失败") : txnErr)
+                         : innerErr;
+        return false;
+    }
+    return true;
+}
+
 bool StationStore::userLoginByPhone(const QString &phone, int *userIdOut,
                                     QString *nicknameOut, double *balanceOut,
                                     int *statusOut, bool *createdOut,
@@ -1038,21 +1203,24 @@ bool StationStore::userLoginByPhone(const QString &phone, int *userIdOut,
             return false;
         }
         if (!q.next()) {
-            // 未注册：按说明书自动注册（昵称=用户+手机号后4位）
+            // 未注册：按说明书自动注册（昵称=用户+手机号后4位）。
+            // 注册即赠送演示初始余额（NO.6）“注册即生成昵称与初始余额”，
+            // 否则新用户余额为 0，第一次结算会因 balance>=0 约束失败。
             created = true;
             nickname = QStringLiteral("用户%1").arg(phone.right(4));
             QSqlQuery ins(db);
             ins.prepare(QStringLiteral(
-                "INSERT INTO users(phone,nickname,balance,status) VALUES(?,?,0,0)"));
+                "INSERT INTO users(phone,nickname,balance,status) VALUES(?,?,?,0)"));
             ins.addBindValue(phone);
             ins.addBindValue(nickname);
+            ins.addBindValue(kNewUserBonusYuan);
             if (!ins.exec()) {
                 if (error) *error = QStringLiteral("自动注册失败：%1")
                                            .arg(ins.lastError().text());
                 return false;
             }
             userId = ins.lastInsertId().toInt();
-            balance = 0.0;
+            balance = kNewUserBonusYuan;
             status = 0;
         } else {
             created = false;
@@ -1071,6 +1239,51 @@ bool StationStore::userLoginByPhone(const QString &phone, int *userIdOut,
     if (nicknameOut)*nicknameOut = nickname;
     if (balanceOut) *balanceOut  = balance;
     if (statusOut)  *statusOut   = status;
+    return true;
+}
+
+bool StationStore::rechargeBalance(const QString &phone, double amount,
+                                   double *balanceOut, QString *error)
+{
+    if (!isOpen()) {
+        if (error) *error = QStringLiteral("数据库未打开");
+        return false;
+    }
+    if (!std::isfinite(amount) || amount <= 0.0 || amount > 10000.0) {
+        if (error) *error = QStringLiteral("充值金额须在 0.01 ~ 10000 元之间");
+        return false;
+    }
+
+    QString innerErr;
+    double newBalance = 0.0;
+    bool ok = runInTransaction([&](QSqlDatabase &db) {
+        QSqlQuery up(db);
+        up.prepare(QStringLiteral("UPDATE users SET balance = balance + ? WHERE phone = ?"));
+        up.addBindValue(amount);
+        up.addBindValue(phone);
+        if (!up.exec()) {
+            innerErr = QStringLiteral("充值失败：%1").arg(up.lastError().text());
+            return false;
+        }
+        if (up.numRowsAffected() == 0) {
+            innerErr = QStringLiteral("用户不存在，请先登录：%1").arg(phone);
+            return false;
+        }
+        QSqlQuery q(db);
+        q.prepare(QStringLiteral("SELECT COALESCE(balance,0) FROM users WHERE phone = ?"));
+        q.addBindValue(phone);
+        if (q.exec() && q.next())
+            newBalance = q.value(0).toDouble();
+        return true;
+    }, error);
+
+    if (!ok) {
+        if (error && !innerErr.isEmpty())
+            *error = innerErr;
+        return false;
+    }
+    if (balanceOut)
+        *balanceOut = newBalance;
     return true;
 }
 

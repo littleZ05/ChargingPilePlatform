@@ -97,9 +97,19 @@ MainWindow::MainWindow(QWidget *parent)
                 if (code == 0)
                     m_stationPage->applyServerStations(stations);
             });
+    // 站内电桩明细：服务器返回的真实桩列表（编号/类型/功率/状态）
+    connect(m_serverSession,
+            &userclient::PcServerSession::stationPilesReceived,
+            this, [this](int code, const QString &,
+                         int stationId, const QVector<userclient::ServerPile> &piles) {
+                if (code == 0 && stationId == m_pendingPileStationId)
+                    m_detailPage->applyServerPiles(piles);
+            });
 
     // NO.7：充电详情页结算触发点接入应用级会话
     m_detailPage->setServerSession(m_serverSession);
+    // NO.6：充值走服务器真实落库
+    m_profilePage->setServerSession(m_serverSession);
 }
 
 MainWindow::~MainWindow()
@@ -156,6 +166,7 @@ void MainWindow::setupMainPage()
 void MainWindow::showMain(const QString &phone)
 {
     m_profilePage->setPhone(phone);
+    m_detailPage->setPhone(phone);   // kStartCharge 建单需要手机号
     if (m_serverSession->isConnected()) {
         m_serverSession->login(phone);
         m_serverSession->queryStations();
@@ -170,6 +181,10 @@ void MainWindow::showMain(const QString &phone)
 void MainWindow::onStationSelected(const Station &station)
 {
     m_detailPage->setStation(station);
+    // 打开详情页即向服务器拉取该站真实电桩列表（含真实状态与编号）
+    m_pendingPileStationId = station.id;
+    if (m_serverSession && m_serverSession->isConnected() && station.id > 0)
+        m_serverSession->queryStationPiles(station.id);
     showTab(1);
     m_navGroup->button(1)->setChecked(true);
 }

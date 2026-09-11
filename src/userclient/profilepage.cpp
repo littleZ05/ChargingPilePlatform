@@ -1,4 +1,5 @@
 #include "profilepage.h"
+#include "pcserver_session.h"
 
 #include <QLabel>
 #include <QLineEdit>
@@ -158,6 +159,36 @@ void ProfilePage::setUserInfo(const QString &nickname, double balance)
         QStringLiteral("余额 ¥%1").arg(QString::number(m_balance, 'f', 2)));
 }
 
+void ProfilePage::setServerSession(userclient::PcServerSession *session)
+{
+    if (m_session == session)
+        return;
+    if (m_session)
+        disconnect(m_session, nullptr, this, nullptr);
+    m_session = session;
+    if (m_session) {
+        connect(m_session, &userclient::PcServerSession::rechargeResult,
+                this, &ProfilePage::onRechargeResult);
+    }
+}
+
+void ProfilePage::onRechargeResult(int code, const QString &message,
+                                   double amount, double balance)
+{
+    if (code != 0) {
+        QMessageBox::warning(this, QStringLiteral("充值失败"),
+                             QStringLiteral("%1（错误码 %2）").arg(message).arg(code));
+        return;
+    }
+    m_balance = balance;
+    m_balanceLabel->setText(
+        QStringLiteral("余额 ¥%1").arg(QString::number(m_balance, 'f', 2)));
+    QMessageBox::information(this, QStringLiteral("充值成功"),
+                             QStringLiteral("已充值 ¥%1（模拟支付成功，已写入数据库）\n当前余额 ¥%2")
+                                 .arg(QString::number(amount, 'f', 2))
+                                 .arg(QString::number(m_balance, 'f', 2)));
+}
+
 void ProfilePage::addOrder(const Order &order)
 {
     // 有真实订单后隐藏空提示，新订单插到列表最上方
@@ -185,12 +216,17 @@ void ProfilePage::recharge()
     bool ok = false;
     const double amount = QInputDialog::getDouble(this, QStringLiteral("充值"),
                                                   QStringLiteral("充值金额（元）："), 50.0, 1.0, 10000.0, 2, &ok);
-    if (ok && amount > 0) {
-        m_balance += amount;
-        m_balanceLabel->setText(QStringLiteral("余额 ¥%1").arg(QString::number(m_balance, 'f', 2)));
-        QMessageBox::information(this, QStringLiteral("充值成功"),
-                                 QStringLiteral("已充值 ¥%1，当前余额 ¥%2")
-                                     .arg(QString::number(amount, 'f', 2))
-                                     .arg(QString::number(m_balance, 'f', 2)));
+    if (!ok || !(amount > 0))
+        return;
+
+    // 真实充值：经 Socket 提交服务器写入 users.balance，界面等回执后再更新
+    if (m_session && m_session->isConnected()) {
+        if (m_session->recharge(m_phone, amount))
+            return;   // 结果由 onRechargeResult 处理
+        QMessageBox::warning(this, QStringLiteral("充值失败"),
+                             QStringLiteral("充值请求发送失败，请稍后重试。"));
+        return;
     }
+    QMessageBox::warning(this, QStringLiteral("无法充值"),
+                         QStringLiteral("未连接服务器，充值需要连接服务器后才能生效。"));
 }

@@ -115,3 +115,13 @@ UPDATE piles SET
   charge_count = (SELECT COUNT(*) FROM orders o WHERE o.pile_id=piles.id AND o.state=1),
   charge_seconds = (SELECT COALESCE(SUM(CAST((julianday(o.end_time)-julianday(o.start_time))*3600 AS INTEGER)),0)
                     FROM orders o WHERE o.pile_id=piles.id AND o.state=1);
+
+-- 10) 数据一致性归一（保证“充电中”的桩一定有未完成订单，反之亦然）
+--     否则演示时会出现两类失败：① 空闲桩挂着未完成订单 → 无法建单；
+--     ② 充电中的桩没有未完成订单 → 无法结算。
+UPDATE piles SET state = 1
+WHERE id IN (SELECT pile_id FROM orders WHERE state = 0);
+
+UPDATE piles SET state = 0
+WHERE state = 1
+  AND id NOT IN (SELECT pile_id FROM orders WHERE state = 0);

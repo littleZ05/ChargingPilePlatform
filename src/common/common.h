@@ -44,6 +44,8 @@ inline constexpr int kProfileUpdate   = 7;   // 用户资料修改
 inline constexpr int kLoginRequest    = 10;  // 管理员/用户登录
 inline constexpr int kRegisterRequest = 11;  // 用户注册
 
+inline constexpr int kRechargeRequest = 30;  // NO.6 用户余额充值（真实落库，模拟支付成功）
+
 inline constexpr int kPileManageRequest  = 20; // 充电桩管理（服务端）
 inline constexpr int kSalesQueryRequest  = 21; // 销售业绩查询
 inline constexpr int kUserManageRequest  = 22; // 用户管理
@@ -60,6 +62,7 @@ inline constexpr int kProfileQueryResponse    = 106;
 inline constexpr int kProfileUpdateResponse   = 107;
 inline constexpr int kLoginResponse           = 110;
 inline constexpr int kRegisterResponse        = 111;
+inline constexpr int kRechargeResponse        = 130;
 inline constexpr int kPileManageResponse      = 120;
 inline constexpr int kSalesQueryResponse      = 121;
 inline constexpr int kUserManageResponse      = 122;
