@@ -103,7 +103,12 @@ class SelfCheckPanel : public QWidget
 {
     Q_OBJECT
 public:
-    explicit SelfCheckPanel(StationStore *store, QWidget *parent = nullptr);
+    /**
+     * @param checkServices 是否检查服务器专属服务（Socket 9999 / 大屏 8890）。
+     *        独立模块包中没有这两个服务，传 false 时这两项标记为 N/A 而不计为失败。
+     */
+    explicit SelfCheckPanel(StationStore *store, QWidget *parent = nullptr,
+                            bool checkServices = true);
 
 public slots:
     void runChecks();
@@ -114,6 +119,7 @@ private:
     StationStore *m_store = nullptr;
     QTableWidget *m_table = nullptr;
     QLabel *m_summary = nullptr;
+    bool m_checkServices = true;
 };
 
 } // namespace pcserver

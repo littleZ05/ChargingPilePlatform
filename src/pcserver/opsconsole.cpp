@@ -554,8 +554,9 @@ void RunLogPanel::refresh()
 // ============================================================
 // NO.21 交付自检（测试与交付前端）
 // ============================================================
-SelfCheckPanel::SelfCheckPanel(StationStore *store, QWidget *parent)
-    : QWidget(parent), m_store(store)
+SelfCheckPanel::SelfCheckPanel(StationStore *store, QWidget *parent,
+                               bool checkServices)
+    : QWidget(parent), m_store(store), m_checkServices(checkServices)
 {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -678,25 +679,45 @@ void SelfCheckPanel::runChecks()
                       .arg(cq.value(0).toInt()).arg(cq.value(1).toInt())
                       .arg(cq.value(2).toInt()).arg(cq.value(3).toInt()));
 
-    // 7) Socket 服务
-    addResult(QStringLiteral("Socket 服务端口 9999"), portListening(9999),
-              portListening(9999) ? QStringLiteral("可连接 127.0.0.1:9999")
-                                  : QStringLiteral("端口不可连接"));
+    // 7) Socket 服务（仅完整服务器端有；独立模块包中标记为 N/A）
+    if (m_checkServices) {
+        const bool socketOk = portListening(9999);
+        addResult(QStringLiteral("Socket 服务端口 9999"), socketOk,
+                  socketOk ? QStringLiteral("可连接 127.0.0.1:9999")
+                           : QStringLiteral("端口不可连接"));
 
-    // 8) 大屏聚合接口
-    QString apiDetail;
-    const bool apiOk = dashboardApiOk(8890, &apiDetail);
-    addResult(QStringLiteral("大屏聚合接口 8890"), apiOk, apiDetail);
+        QString apiDetail;
+        const bool apiOk = dashboardApiOk(8890, &apiDetail);
+        addResult(QStringLiteral("大屏聚合接口 8890"), apiOk, apiDetail);
+    } else {
+        addResult(QStringLiteral("Socket 服务端口 9999"), true,
+                  QStringLiteral("N/A：本独立模块包不含服务器 Socket 服务"));
+        addResult(QStringLiteral("大屏聚合接口 8890"), true,
+                  QStringLiteral("N/A：本独立模块包不含 Web 大屏聚合服务"));
+        for (int r = m_table->rowCount() - 2; r < m_table->rowCount(); ++r) {
+            if (m_table->item(r, 1))
+                m_table->item(r, 1)->setText(QStringLiteral("N/A"));
+        }
+    }
 
     int pass = 0;
+    int na = 0;
     for (int r = 0; r < m_table->rowCount(); ++r) {
-        if (m_table->item(r, 1) && m_table->item(r, 1)->text() == QStringLiteral("PASS"))
+        const QString result = m_table->item(r, 1) ? m_table->item(r, 1)->text() : QString();
+        if (result == QStringLiteral("PASS"))
             ++pass;
+        else if (result == QStringLiteral("N/A"))
+            ++na;
     }
     m_table->resizeColumnsToContents();
-    if (m_summary)
-        m_summary->setText(QStringLiteral("共 %1 项检查，%2 项通过")
-                               .arg(m_table->rowCount()).arg(pass));
+    if (m_summary) {
+        m_summary->setText(
+            na > 0
+                ? QStringLiteral("共 %1 项检查，%2 项通过，%3 项不适用（N/A）")
+                      .arg(m_table->rowCount()).arg(pass).arg(na)
+                : QStringLiteral("共 %1 项检查，%2 项通过")
+                      .arg(m_table->rowCount()).arg(pass));
+    }
 }
 
 } // namespace pcserver
