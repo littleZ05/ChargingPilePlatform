@@ -18,3 +18,5 @@ RESOURCES += $$PWD/../pcserver.qrc
 schema_resource.target = qrc_pcserver.cpp
 schema_resource.depends = $$PWD/../../database/schema.sql
 QMAKE_EXTRA_TARGETS += schema_resource
+
+SOURCES += $$PWD/../stationstore_orders.cpp

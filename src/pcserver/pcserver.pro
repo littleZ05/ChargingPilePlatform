@@ -60,3 +60,11 @@ QMAKE_EXTRA_TARGETS += schema_resource
 QT += concurrent
 SOURCES += $$PWD/../common/forecast_async.cpp
 HEADERS += $$PWD/../common/forecast_async.h
+
+SOURCES += $$PWD/admin_repository.cpp $$PWD/admin_demo_seed.cpp
+HEADERS += $$PWD/admin_repository.h
+
+SOURCES += $$PWD/mainwindow_support.cpp $$PWD/mainwindow_pages.cpp $$PWD/mainwindow_socket.cpp
+HEADERS += $$PWD/mainwindow_support.h $$PWD/mainwindow_p.h
+
+SOURCES += $$PWD/stationstore_orders.cpp
