@@ -1,6 +1,8 @@
 #include "mappage.h"
 
 #include <QLabel>
+#include <QWebEngineView>
+#include <QComboBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -28,35 +30,6 @@ constexpr int kMapHeight = 720;
 
 /** path 折线最多保留的坐标点数，避免 URL 过长 */
 constexpr int kMaxPathPoints = 40;
-
-/** 解码腾讯 direction API 的 polyline 为 (纬度, 经度) 坐标序列。
- *  常见格式为扁平数组 [lat*1e6, lng*1e6, ...]，兼容嵌套 [[lat,lng], ...]。 */
-QVector<QPair<double, double>> decodePolyline(const QJsonValue &v)
-{
-    QVector<QPair<double, double>> pts;
-    if (!v.isArray()) return pts;
-
-    const QJsonArray arr = v.toArray();
-    if (arr.isEmpty()) return pts;
-
-    const bool nested = arr.first().isArray();
-    auto append = [&pts](double lat, double lng) {
-        if (lat != 0.0 || lng != 0.0)
-            pts.append(qMakePair(lat, lng));
-    };
-
-    if (nested) {
-        for (const QJsonValue &e : arr) {
-            const QJsonArray p = e.toArray();
-            if (p.size() >= 2)
-                append(p.at(0).toDouble(), p.at(1).toDouble());
-        }
-    } else {
-        for (int i = 0; i + 1 < arr.size(); i += 2)
-            append(arr.at(i).toDouble() / 1e6, arr.at(i + 1).toDouble() / 1e6);
-    }
-    return pts;
-}
 
 /** 均匀降采样，保证终点精确落在最后一点。 */
 QVector<QPair<double, double>> downsample(const QVector<QPair<double, double>> &pts,
@@ -105,6 +78,17 @@ MapPage::MapPage(QWidget *parent)
     tl->addWidget(m_routeLabel, 1);
     tl->addWidget(locBtn);
     v->addWidget(top);
+    m_mode = new QComboBox(this);
+    m_mode->setObjectName(QStringLiteral("travelMode"));
+    m_mode->addItem(QStringLiteral("驾车"));
+    m_mode->addItem(QStringLiteral("步行"));
+    v->addWidget(m_mode);
+    connect(m_mode, &QComboBox::currentIndexChanged, this, [this] {
+        if (!m_station.name.isEmpty()) {
+            setRoute(m_station);
+            if (m_web->isVisible()) openMap();
+        }
+    });
 
     // ---- 静态地图区（图片由静态图 API 返回，直接用 QLabel 显示）----
     auto *mapArea = new QFrame(this);
@@ -118,6 +102,16 @@ MapPage::MapPage(QWidget *parent)
     m_mapLabel->setScaledContents(true);
     m_mapLabel->setMinimumSize(300, 300);
     mv->addWidget(m_mapLabel);
+    m_web = new QWebEngineView(mapArea);
+    m_web->setObjectName(QStringLiteral("embeddedMap"));
+    m_web->hide();
+    mv->addWidget(m_web,1);
+    connect(m_web,&QWebEngineView::loadFinished,this,[this](bool ok) {
+        if (!ok) {
+            m_web->hide(); m_mapLabel->show();
+            m_infoLabel->setText(QStringLiteral("网页导航加载失败，请检查网络或使用浏览器打开"));
+        }
+    });
     v->addWidget(mapArea, 1);
 
     // ---- 底部：路线信息 + 导航按钮 ----
@@ -136,6 +130,12 @@ MapPage::MapPage(QWidget *parent)
 
     bv->addWidget(m_infoLabel);
     bv->addWidget(openBtn);
+    auto *external = new QPushButton(QStringLiteral("在浏览器打开"),bottom);
+    bv->addWidget(external);
+    connect(external,&QPushButton::clicked,this,[this] {
+        const QUrl url=navigationUrl();
+        if(!url.isEmpty()) QDesktopServices::openUrl(url);
+    });
     v->addWidget(bottom);
 
     m_nam = new QNetworkAccessManager(this);
@@ -143,6 +143,11 @@ MapPage::MapPage(QWidget *parent)
 
 void MapPage::setRoute(const Station &station)
 {
+    if (!userclient::validCoordinates(station.latitude,station.longitude)
+        || !userclient::validCoordinates(gUserLocation.lat,gUserLocation.lng)) {
+        m_infoLabel->setText(QStringLiteral("起点或终点坐标无效，请重新定位"));
+        return;
+    }
     m_station = station;
     ++m_seq;
     m_routePath.clear();
@@ -157,13 +162,14 @@ void MapPage::setRoute(const Station &station)
 void MapPage::fetchRoute()
 {
     const QString url = QStringLiteral(
-        "https://apis.map.qq.com/ws/direction/v1/driving/"
+        "https://apis.map.qq.com/ws/direction/v1/%6/"
         "?from=%1,%2&to=%3,%4&key=%5")
         .arg(gUserLocation.lat).arg(gUserLocation.lng)
         .arg(m_station.latitude).arg(m_station.longitude)
-        .arg(tencentMapKey());
+        .arg(tencentMapKey()).arg(m_mode->currentIndex()==1 ? "walking" : "driving");
 
     QNetworkRequest req((QUrl(url)));
+    req.setTransferTimeout(10000);
     req.setRawHeader("User-Agent", "UserClient/1.0");
     QNetworkReply *reply = m_nam->get(req);
     reply->setProperty("seq", m_seq);
@@ -194,13 +200,13 @@ void MapPage::onRouteReply(QNetworkReply *reply)
     const int minutes = qMax(1, qRound(route.value(QStringLiteral("duration")).toDouble())); // 分钟
     const int lights = route.value(QStringLiteral("traffic_light_count")).toInt();
 
-    m_infoLabel->setText(QStringLiteral("驾车导航 · 距离约 %1 km · 预计 %2 分钟 · 途经 %3 个红绿灯")
+    m_infoLabel->setText(QStringLiteral("%4导航 · 距离约 %1 km · 预计 %2 分钟 · 途经 %3 个红绿灯")
                              .arg(QString::number(km, 'f', 1))
                              .arg(minutes)
-                             .arg(lights));
+                             .arg(lights).arg(m_mode->currentText()));
 
     // 解码路线坐标，作为静态图 path 画出真实驾车路线
-    m_routePath = downsample(decodePolyline(route.value(QStringLiteral("polyline"))),
+    m_routePath = downsample(userclient::decodeTencentPolyline(route.value(QStringLiteral("polyline")).toArray()),
                              kMaxPathPoints);
     loadStaticMap();
 }
@@ -209,6 +215,7 @@ void MapPage::loadStaticMap()
 {
     ++m_mapSeq;
     QNetworkRequest req(QUrl::fromEncoded(staticMapUrl().toUtf8()));
+    req.setTransferTimeout(10000);
     req.setRawHeader("User-Agent", "UserClient/1.0");
     QNetworkReply *reply = m_nam->get(req);
     reply->setProperty("seq", m_mapSeq);
@@ -292,32 +299,30 @@ void MapPage::onStaticMapReply(QNetworkReply *reply)
 void MapPage::showFallbackInfo()
 {
     const double km = distanceKm(gUserLocation.lat, gUserLocation.lng, m_station.latitude, m_station.longitude);
-    const int minutes = qMax(1, qRound(km / 40.0 * 60.0));
-    m_infoLabel->setText(QStringLiteral("驾车导航 · 距离约 %1 km · 预计 %2 分钟（直线估算）")
+    const int minutes = qMax(1, qRound(km / (m_mode->currentIndex()==1 ? 5.0 : 40.0) * 60.0));
+    m_infoLabel->setText(QStringLiteral("%3导航 · 距离约 %1 km · 预计 %2 分钟（直线估算）")
                              .arg(QString::number(km, 'f', 1))
-                             .arg(minutes));
+                             .arg(minutes).arg(m_mode->currentText()));
 
     m_routePath.clear();
     loadStaticMap(); // 无路线时只保留起终点标注
 }
 
+QUrl MapPage::navigationUrl() const
+{
+    return userclient::routePlanUrl(gUserLocation.lat,gUserLocation.lng,gUserLocation.label,
+        m_station.latitude,m_station.longitude,m_station.name,
+        m_mode->currentIndex()==1 ? userclient::TravelMode::Walking : userclient::TravelMode::Driving);
+}
+
 void MapPage::openMap()
 {
-    // 腾讯地图 URI API（Web）：浏览器打开真实驾车导航。
-    // 桌面端用 https:// 网页导航（qqmap:// 需装腾讯地图 App，桌面无此协议处理）。
-    QUrl url(QStringLiteral("https://apis.map.qq.com/uri/v1/routeplan"));
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("type"), QStringLiteral("drive"));
-    q.addQueryItem(QStringLiteral("from"), gUserLocation.label);
-    q.addQueryItem(QStringLiteral("fromcoord"),
-                   QStringLiteral("%1,%2").arg(gUserLocation.lat).arg(gUserLocation.lng));
-    q.addQueryItem(QStringLiteral("to"), m_station.name);
-    q.addQueryItem(QStringLiteral("tocoord"),
-                   QStringLiteral("%1,%2").arg(m_station.latitude).arg(m_station.longitude));
-    url.setQuery(q);
-
-    if (!QDesktopServices::openUrl(url)) {
-        QMessageBox::information(this, QStringLiteral("提示"),
-                                 QStringLiteral("无法打开浏览器，请检查默认浏览器设置。\n目标：%1").arg(m_station.name));
+    const QUrl url=navigationUrl();
+    if(url.isEmpty() || m_station.name.isEmpty()) {
+        m_infoLabel->setText(QStringLiteral("请先选择有效的起点和充电站"));
+        return;
     }
+    m_mapLabel->hide();
+    m_web->show();
+    m_web->load(url);
 }
