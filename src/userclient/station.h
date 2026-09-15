@@ -17,6 +17,7 @@ struct Pile {
 
 /** 充电站信息（对应数据库 stations 表，供用户端展示） */
 struct Station {
+    double serverPrice = -1;
     double predictedIdleRate = -1;
     int predictedIdlePiles = -1;
     int     id         = 0;      // 服务器 station id（0 = 本地占位站，无后端数据）
@@ -161,6 +162,7 @@ inline bool isOnSale(const Station &s)
 /** 计费单价（命中闲时特惠则打折） */
 inline double effectivePrice(const Station &s)
 {
+    if (s.id > 0 && s.serverPrice >= 0) return s.serverPrice;
     return isOnSale(s) ? s.price * cp::Pricing::kDiscount : s.price;
 }
 

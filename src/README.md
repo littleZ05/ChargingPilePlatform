@@ -1,53 +1,12 @@
-# src/ 工程骨架说明
+# 工程构建与模块
 
-## 目录结构
+推荐从仓库根目录运行 `python3 tools/verify.py`，使用独立构建目录，避免源目录旧moc/resource生成物影响结果。仅构建主程序可运行 `./tools/demo_5min.sh --build-only`。
 
-```
-src/
-├── ChargingPilePlatform.pro   # 总工程（subdirs，可一键构建两个子工程）
-├── common/                    # 共享代码：常量、枚举、公共数据结构（两个端都引用）
-│   ├── common.h               # 端口/状态/创新点规则常量、状态文本
-│   ├── protocol.h             # 版本化安全通信 Envelope/错误码/角色访问控制（NO.15，陈庚泉）
-│   ├── error_utils.h          # 错误码/文案/输入校验（NO.20，张芮萌）
-│   ├── ui/error_notify.h      # 统一弹窗/状态栏错误提示封装（NO.20，张芮萌）
-│   └── tests/                 # protocol/error_utils/packet/net 单元测试（qmake + QtTest）
-├── userclient/                # 充电用户端（Linux+Qt，负责人：葛伊诺 geyinuo）
-├── pcserver/                  # PC 服务器端（Linux+Qt，负责人：毛悦琮、陈庚泉）
-├── database/                  # 数据库：schema.sql 建表脚本 + 设计说明（负责人：陈庚泉）
-├── webdashboard/              # 大数据可视化大屏（Web+ECharts，负责人：吴羽桐；NO.16 动态接入 PcServer 8890 只读聚合接口）
-└── innovation_demo/           # 创新点1/2 模拟触发演示（组长：价格策略/自愈检查，答辩前接 ML 输入）
-```
+- userclient：用户界面、登录、订单恢复、资料、推荐与WebEngine导航。
+- pcserver：管理员界面、后台仓储、ChargeService、定价、自愈、大屏API。
+- common：CP帧组包、异步Socket、预测算法与线程任务、错误码。
+- database：唯一schema.sql、独立演示数据demo_seed.sql。
+- webdashboard：本地ECharts页面，读取PcServer只读HTTP接口。
+- innovation_demo：历史独立演示器，不是主业务链路；其测试单独归类。
 
-## 构建方式
-
-```bash
-# 方式一：进入任意子目录独立构建
-cd src/userclient && qmake6 && make && ./UserClient
-cd src/pcserver   && qmake6 && make && ./PcServer
-
-# 方式二：在 src/ 下用总工程构建
-cd src && qmake6 && make
-```
-
-## 模块与文件夹约定
-
-| 成员 | 主要目录 |
-|---|---|
-| 张芮萌 | 项目管理/测试；创新点（价格策略、自愈检查） |
-| 葛伊诺 | userclient/ |
-| 毛悦琮 | pcserver/（基础管理 + QChart） |
-| 陈庚泉 | pcserver/（充电站/用户管理等，见 `pcserver/README.md`）+ database/schema.sql（见 `database/README.md`）+ common/protocol.h（NO.15 通信结构与数据安全契约） |
-| 吴羽桐 | webdashboard/ + common/（Socket 组件） |
-
-> 重要：数据库建表脚本由陈庚泉维护（database/schema.sql），其他人改表结构必须走评审后合入 main，
-> 禁止各自私下改表。common/ 下的通信结构同理。
-
-## 公共组件（组长维护，任何人可用）
-
-- 错误处理：`error_utils.h`（错误码/中文文案/手机号、金额校验）+ `ui/error_notify.h`（统一弹窗/状态栏提示），
-  接入方式见 [docs/错误处理接入指南.md](../docs/错误处理接入指南.md)；
-- 规则常量：`common.h` 中 `cp::Pricing`（动态计费）与 `cp::SelfHeal`（自愈告警）参数集中可调；
-- 单元测试：
-  `cd src/common/tests && qmake6 protocol_tests.pro && make && ./tst_protocol`；
-  `cd src/common/tests && qmake6 error_utils_tests.pro && make && ./error_utils_tests`；
-  `cd src/common/tests && qmake6 packet_assembler_tests.pro && make && ./packet_assembler_tests`。
+Qt 6.2.4依赖包含WebEngineWidgets与Concurrent。正式说明见根README、docs/使用手册.md、docs/重构结构说明.md和docs/协议与数据库变更评审_v3.md。不要根据历史骨架文档猜测线上协议；实际帧为CP(2B)+类型(2B)+长度(4B)+JSON。

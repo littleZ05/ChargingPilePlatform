@@ -165,6 +165,7 @@ private:
     QHash<int, QString> m_inflight;
     QString m_phone;
     bool m_authenticated = false;
+    bool m_profileRefreshPending = false;
     void connectNow();
     void scheduleReconnect();
     void sendHeartbeat();

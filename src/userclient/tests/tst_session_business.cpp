@@ -64,7 +64,7 @@ void BusinessSessionTest::lostReplyReplayedAfterReconnect()
     QCOMPARE(attempts,2); QCOMPARE(effects,1); QCOMPARE(logins,2);
     QCOMPARE(recharge.first().at(0).toInt(),0);
     QCOMPARE(recharge.first().at(3).toDouble(),110.0);
-    QVERIFY(!QSettings().contains(QStringLiteral("business/127.0.0.1/%1/13800138001/30").arg(port)));
+    QVERIFY(!QSettings("ChargingPilePlatform","UserClient").contains(QStringLiteral("business/127.0.0.1/%1/13800138001/30").arg(port)));
     session.stop(); server.stopServer();
 }
 QTEST_GUILESS_MAIN(BusinessSessionTest)

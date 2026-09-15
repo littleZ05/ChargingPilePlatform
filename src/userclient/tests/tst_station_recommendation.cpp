@@ -7,6 +7,11 @@ class RecommendationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void serverPriceIsAuthoritative() {
+        Station station; station.id=1; station.price=2; station.serverSale=true;
+        station.serverPrice=1.76; QCOMPARE(effectivePrice(station),1.76);
+        station.serverPrice=0; QCOMPARE(effectivePrice(station),0.0);
+    }
     void sortModesAndEmptyServerData() {
         StationPage page;
         userclient::ServerStation near, far, unknown;

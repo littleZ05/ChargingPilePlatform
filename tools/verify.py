@@ -33,10 +33,18 @@ def main():
                 root / 'src/userclient/userclient.pro']
     projects += sorted(root.glob('src/*/tests/*.pro'))
     selected = [p for p in projects if args.filter in str(p.relative_to(root))]
-    if not selected:
+    if not selected and args.filter != 'tools/tests':
         parser.error('filter matched no projects')
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-    dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True))
+    git_root = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=root,
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    is_checkout = git_root.returncode == 0 and Path(git_root.stdout.strip()).resolve() == root
+    if is_checkout:
+        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True))
+    else:
+        marker = root / 'SOURCE_REVISION'
+        revision = marker.read_text().strip() if marker.exists() else 'unversioned-source'
+        dirty = False
     results = []
     for project in selected:
         name = str(project.relative_to(root)).replace('/', '__')[:-4]
@@ -68,6 +76,14 @@ def main():
         print(('PASS' if code == 0 else 'FAIL') + ' ' + result['project'], flush=True)
         if code:
             print('\n'.join(log.read_text(errors='replace').splitlines()[-14:]), flush=True)
+    if not args.filter or args.filter == 'tools/tests':
+        log = output / 'python-tools-tests.log'
+        with log.open('w') as stream:
+            code = subprocess.run([sys.executable, '-m', 'unittest', 'discover',
+                                   '-s', 'tools/tests', '-v'], cwd=root, env=env,
+                                  stdout=stream, stderr=subprocess.STDOUT, timeout=60).returncode
+        results.append(dict(project='tools/tests', exit_code=code, log=str(log)))
+        print(('PASS' if code == 0 else 'FAIL') + ' tools/tests', flush=True)
     report = dict(commit=revision, dirty=dirty,
                   timestamp=datetime.datetime.now().astimezone().isoformat(),
                   results=results)

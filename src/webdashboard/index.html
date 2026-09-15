@@ -364,6 +364,14 @@
       .chart-host { height: 320px; }
     }
 
+    @media (max-height: 820px) and (min-width: 901px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100vh; }
+      main { flex: none; }
+      .page > .panel { flex: none; min-height: 420px; }
+      .chart-host { height: 350px; }
+    }
+
     @media (max-width: 560px) {
       .kpi-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -452,7 +460,7 @@
           </article>
 
           <article class="kpi-card kpi-card--forecast">
-            <div class="kpi-label">未来 24h 预测峰值</div>
+            <div class="kpi-label" id="forecastKpiTitle">预测峰值</div>
             <div class="kpi-main">
               <div class="kpi-value-row">
                 <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
@@ -479,7 +487,7 @@
       <section class="page" id="page-load" aria-label="负荷预测">
         <article class="panel panel--load">
           <header class="panel-head">
-            <h2 class="panel-title">近24小时充电负荷与未来24小时预测</h2>
+            <h2 class="panel-title" id="forecastChartTitle">历史负荷与预测</h2>
             <span class="panel-note">绿实线=历史实测 · 绿虚线=预测 · 单位 kW</span>
           </header>
           <div class="panel-body">
@@ -525,6 +533,16 @@
        * - 对外暴露 window.updateDashboardData(data)，便于后续 WebChannel 等通道接入。
        * ===================================================================== */
       var DATA_BACKEND = 'http://127.0.0.1:8890/api/dashboard/overview';
+      // A shared file can target a configured local service without editing source.
+      var requestedBackend = new URLSearchParams(window.location.search).get('api');
+      if (requestedBackend) {
+        try {
+          var configuredUrl = new URL(requestedBackend);
+          if (configuredUrl.protocol === 'http:' || configuredUrl.protocol === 'https:') {
+            DATA_BACKEND = configuredUrl.href;
+          }
+        } catch (_) { /* Invalid settings keep the documented default. */ }
+      }
       var REFRESH_MS = 10000;       // 大屏数据轮询间隔
       var FETCH_TIMEOUT_MS = 4000;  // 单次请求超时
 
@@ -704,6 +722,8 @@
         var online = total - fault;
         var trend = k.forecastTrend || '--';
         var horizon = toNumber(k.forecastHorizon, 6);
+        document.getElementById('forecastKpiTitle').textContent = '未来 ' + horizon + 'h 预测峰值';
+        document.getElementById('forecastChartTitle').textContent = '近24小时负荷与未来' + horizon + '小时预测';
 
         renderValue('kpiTotalValue', total, 0);
         renderValue('kpiHealthValue', k.onlineRate, 1);

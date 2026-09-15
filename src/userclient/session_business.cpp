@@ -28,7 +28,7 @@ bool PcServerSession::command(int type, QJsonObject request)
     }
     const QByteArray bytes = QJsonDocument(request).toJson(QJsonDocument::Compact);
     if (writing) {
-        QSettings settings;
+        QSettings settings(QStringLiteral("ChargingPilePlatform"),QStringLiteral("UserClient"));
         settings.setValue(commandKey(type), bytes);
         settings.sync();
         if (settings.status() != QSettings::NoError)
@@ -58,7 +58,7 @@ void PcServerSession::restoreCommands()
     const int types[] = {cp::MsgType::kStartCharge, cp::MsgType::kOrderReport,
                          cp::MsgType::kStopCharge, cp::MsgType::kRechargeRequest,
                          cp::MsgType::kProfileUpdate};
-    QSettings settings;
+    QSettings settings(QStringLiteral("ChargingPilePlatform"),QStringLiteral("UserClient"));
     for (int type : types) {
         QJsonObject r = QJsonDocument::fromJson(settings.value(commandKey(type)).toByteArray()).object();
         if (r.isEmpty())
@@ -84,7 +84,7 @@ bool PcServerSession::receiveBusiness(int type, const QByteArray &body)
     const int code = r.value("code").toInt(-1);
     if (code >= 0 && code < 500) {
         m_commands.remove(type);
-        QSettings().remove(commandKey(type));
+        QSettings(QStringLiteral("ChargingPilePlatform"),QStringLiteral("UserClient")).remove(commandKey(type));
     }
     const QString message = r.value("message").toString();
     emit businessResult(type, r);
@@ -93,8 +93,13 @@ bool PcServerSession::receiveBusiness(int type, const QByteArray &body)
                                r.value("order_id").toInt(), r.value("unit_price").toDouble());
     if (type == cp::MsgType::kRechargeRequest)
         emit rechargeResult(code, message, r.value("amount").toDouble(), r.value("balance").toDouble());
-    if (type != cp::MsgType::kProfileQuery && isConnected())
+    if (type != cp::MsgType::kProfileQuery)
+        m_profileRefreshPending = true;
+    if (m_profileRefreshPending && isConnected()
+        && !m_inflight.contains(cp::MsgType::kProfileQuery)) {
+        m_profileRefreshPending = false;
         command(cp::MsgType::kProfileQuery);
+    }
     return true;
 }
 
@@ -102,6 +107,7 @@ void PcServerSession::logout()
 {
     m_phone.clear();
     m_authenticated = false;
+    m_profileRefreshPending = false;
     m_commands.clear();
     m_inflight.clear();
     m_loginPending = false;
