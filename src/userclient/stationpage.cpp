@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include <QListWidget>
+#include <QComboBox>
 #include <QListWidgetItem>
 #include <QLineEdit>
 #include <QFrame>
@@ -57,6 +58,16 @@ StationPage::StationPage(QWidget *parent)
     m_listTitle = new QLabel(QStringLiteral("附近充电站(按距离排序)"), this);
     m_listTitle->setObjectName(QStringLiteral("hintText"));
     layout->addWidget(m_listTitle);
+    auto *sortMode = new QComboBox(this);
+    sortMode->setObjectName(QStringLiteral("stationSortMode"));
+    sortMode->addItem(QStringLiteral("距离优先"));
+    sortMode->addItem(QStringLiteral("低拥堵推荐（未来1小时）"));
+    layout->addWidget(sortMode);
+    connect(sortMode,&QComboBox::currentIndexChanged,this,[this](int index) {
+        m_recommend = index == 1;
+        sortByDistance();
+        rebuildList();
+    });
 
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("stationList"));
@@ -78,7 +89,9 @@ StationPage::StationPage(QWidget *parent)
 void StationPage::sortByDistance()
 {
     std::sort(m_stations.begin(), m_stations.end(),
-              [](const Station &a, const Station &b) {
+              [this](const Station &a, const Station &b) {
+                  if (m_recommend && a.predictedIdleRate != b.predictedIdleRate)
+                      return a.predictedIdleRate > b.predictedIdleRate;
                   return distanceKm(gUserLocation.lat, gUserLocation.lng, a.latitude, a.longitude)
                        < distanceKm(gUserLocation.lat, gUserLocation.lng, b.latitude, b.longitude);
               });
@@ -116,8 +129,7 @@ void StationPage::relocate()
 void StationPage::applyServerStations(
     const QVector<userclient::ServerStation> &stations)
 {
-    if (stations.isEmpty())
-        return;   // 回退：维持腾讯 POI 列表
+    m_serverData = true;
     m_stations.clear();
     for (const userclient::ServerStation &st : stations) {
         Station s;
@@ -131,6 +143,8 @@ void StationPage::applyServerStations(
         s.idlePiles  = st.idlePiles;
         s.onlineRate = st.onlineRate;
         s.serverSale = st.onSale;
+        s.predictedIdleRate = st.predictedIdleRate;
+        s.predictedIdlePiles = st.predictedIdlePiles;
         s.type       = QStringLiteral("快慢兼有");
         // 与数据库 piles.code 对齐：站点 S01 → S01-P01 / S01-P02 …
         s.pilePrefix = QStringLiteral("S%1").arg(st.id, 2, 10, QLatin1Char('0'));
@@ -312,6 +326,14 @@ QWidget *StationPage::makeStationCard(const Station &s)
     auto *addr = new QLabel(s.address, card);
     addr->setObjectName(QStringLiteral("hintText"));
     v->addWidget(addr);
+    const QString forecastText = s.predictedIdleRate >= 0
+        ? QStringLiteral("未来1小时预计空闲 %1 桩（%2%，按功率估算）")
+              .arg(s.predictedIdlePiles).arg(s.predictedIdleRate,0,'f',0)
+        : QStringLiteral("预测样本不足，按距离查找可用电站");
+    auto *forecast = new QLabel(forecastText, card);
+    forecast->setObjectName(QStringLiteral("hintText"));
+    forecast->setWordWrap(true);
+    v->addWidget(forecast);
 
     // 第三行：类型 / 价格 / 空闲 / 在线率（分栏对齐）
     auto *info = new QHBoxLayout;
@@ -358,6 +380,7 @@ QWidget *StationPage::makeStationCard(const Station &s)
 
 void StationPage::searchNearbyStations()
 {
+    if (m_serverData) return;
     ++m_placeSeq;
     QUrl url(QStringLiteral("https://apis.map.qq.com/ws/place/v1/search"));
     QUrlQuery q;
@@ -378,6 +401,7 @@ void StationPage::searchNearbyStations()
 
 void StationPage::onPlaceSearchReply(QNetworkReply *reply)
 {
+    if (m_serverData) { reply->deleteLater(); return; }
     const bool stale = (reply->property("seq").toInt() != m_placeSeq);
     const bool ok = !stale && reply->error() == QNetworkReply::NoError;
     const QByteArray data = ok ? reply->readAll() : QByteArray();

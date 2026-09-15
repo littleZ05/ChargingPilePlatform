@@ -70,6 +70,9 @@
 #include "net_server.h"
 #include "opsconsole.h"
 #include "charge_service.h"
+#include "forecast_async.h"
+#include "pricingservice.h"
+#include <QFutureWatcher>
 #include "stationstore.h"
 #include "uitheme.h"
 
@@ -1922,6 +1925,7 @@ void MainWindow::buildUi()
     d->forecastHorizonCombo->addItem(QStringLiteral("未来 1 小时"), 1);
     d->forecastHorizonCombo->addItem(QStringLiteral("未来 3 小时"), 3);
     d->forecastHorizonCombo->addItem(QStringLiteral("未来 6 小时"), 6);
+    d->forecastHorizonCombo->addItem(QStringLiteral("未来 24 小时"), 24);
     d->forecastHorizonCombo->setCurrentIndex(2);
     auto *modelLabel = new QLabel(QStringLiteral("预测模型"), forecastPage);
     d->forecastModelCombo = new QComboBox(forecastPage);
@@ -2245,13 +2249,14 @@ void MainWindow::refreshLoadForecast()
     }
 
     const int hours = qMax(12, d->forecastWindowCombo->currentData().toInt());
-    const int horizon = qBound(1, d->forecastHorizonCombo->currentData().toInt(), 6);
+    const int horizon = qBound(1, d->forecastHorizonCombo->currentData().toInt(), 24);
     const auto model = static_cast<cp::ForecastModel>(
         d->forecastModelCombo->currentData().toInt());
 
     bool usedDemoFallback = false;
+    int imputedHours = 0;
     const QVector<double> history =
-        d->store->hourlyLoadSamples(stationId, hours, &usedDemoFallback, &error);
+        d->store->hourlyLoadSamples(stationId, hours, &usedDemoFallback, &error, &imputedHours);
     if (history.size() != hours) {
         d->forecastStatusLabel->setText(
             QStringLiteral("历史负荷采样失败：%1").arg(error.isEmpty() ? QStringLiteral("未知错误") : error));
@@ -2264,35 +2269,33 @@ void MainWindow::refreshLoadForecast()
     input.horizonHours = horizon;
     input.model = model;
     input.capacityKw = capacityKw;
-    const cp::LoadForecastResult result = cp::forecastLoad(input);
-    if (!result.ok) {
-        d->forecastStatusLabel->setText(
-            QStringLiteral("预测计算失败：%1").arg(result.error));
-        return;
-    }
-
-    fillLoadForecastChart(d->forecastChartView, stationName, currentHourAnchor(),
-                          history, result);
-
+    const quint64 generation = ++m_forecastGeneration;
     const double currentKw = d->store->currentLoadKw(stationId, &error);
-    double displayCurrentKw = currentKw;
-    if (usedDemoFallback && !history.isEmpty())
-        displayCurrentKw = history.last();  // 仿真兜底时曲线末点即“当前”口径
-    const QString dataSource = usedDemoFallback
-        ? QStringLiteral("演示采样（真实记录不足，仿真曲线兜底）")
-        : QStringLiteral("桩功率日志真实聚合");
-    const QString trendText = QStringLiteral("%1 %2 kW/h")
-                                  .arg(cp::loadTrendText(result.trend))
-                                  .arg(result.slopeKwPerHour, 0, 'f', 1);
-    d->forecastStatusLabel->setText(QStringLiteral(
-        "当前负荷 %1 kW ｜ 预测模型：%2 ｜ 趋势：%3 ｜ "
-        "峰值预测 %4 kW（未来第 %5 小时）｜ 数据源：%6")
-        .arg(displayCurrentKw, 0, 'f', 1)
-        .arg(result.modelName)
-        .arg(trendText)
-        .arg(result.peakForecastKw, 0, 'f', 1)
-        .arg(result.peakHourOffset)
-        .arg(dataSource));
+    auto *watcher = new QFutureWatcher<cp::ForecastCalculation>(this);
+    d->forecastStatusLabel->setText(QStringLiteral("后台计算中…"));
+    connect(watcher, &QFutureWatcher<cp::ForecastCalculation>::finished, this,
+            [this, watcher, generation, history, stationName, usedDemoFallback,
+             currentKw, capacityKw, imputedHours] {
+        const auto calculated = watcher->result();
+        watcher->deleteLater();
+        if (generation != m_forecastGeneration)
+            return; // A newer station/model selection owns the screen.
+        const auto &result = calculated.result;
+        if (!result.ok) {
+            d->forecastStatusLabel->setText(QStringLiteral("预测失败：%1").arg(result.error));
+            return;
+        }
+        fillLoadForecastChart(d->forecastChartView, stationName, currentHourAnchor(), history, result);
+        const QString source = usedDemoFallback ? QStringLiteral("演示采样") : QStringLiteral("功率记录聚合（%1小时插补）").arg(imputedHours);
+        const bool warning = capacityKw > 0 && result.peakForecastKw / capacityKw >= 0.8;
+        d->forecastStatusLabel->setText(QStringLiteral(
+            "当前 %1 kW ｜预测模型：%2 ｜ %3 ｜峰值预测 %4 kW（未来第%5小时）｜数据源：%6｜%7")
+            .arg(currentKw,0,'f',1).arg(result.modelName).arg(cp::loadTrendText(result.trend))
+            .arg(result.peakForecastKw,0,'f',1).arg(result.peakHourOffset).arg(source)
+            .arg(warning ? QStringLiteral("负荷预警：预测峰值达容量80%") : QStringLiteral("预测负荷正常")));
+        qInfo() << "[forecast] calculation worker thread" << calculated.threadId;
+    });
+    watcher->setFuture(cp::forecastAsync(input));
 }
 
 void MainWindow::refreshPileStatus()
@@ -3149,6 +3152,13 @@ void MainWindow::handleStationQueryPacket(QTcpSocket *client,
         item.insert(QStringLiteral("price"), station.currentPrice);
         item.insert(QStringLiteral("discount"), station.discount);
         item.insert(QStringLiteral("is_discount"), station.onSale);
+        const double predictedIdle = pcserver::predictIdleRatePercent(*d->store, station.id);
+        item.insert(QStringLiteral("forecast_available"), predictedIdle >= 0);
+        item.insert(QStringLiteral("predicted_idle_rate"), predictedIdle);
+        item.insert(QStringLiteral("predicted_idle_piles"), predictedIdle >= 0
+                    ? qBound(0, qRound(station.totalPiles * predictedIdle / 100.0), station.totalPiles) : -1);
+        item.insert(QStringLiteral("forecast_horizon_hours"), 1);
+        item.insert(QStringLiteral("forecast_basis"), QStringLiteral("小时功率估算，非排队承诺"));
         stationArray.append(item);
         ++returned;
     }

@@ -329,6 +329,7 @@ void TstStationUi::forecastTabRendersHistoryAndForecastSeries()
 
     QVERIFY(stationCombo->count() > 0);
     QVERIFY(chartView->chart());
+    QTRY_VERIFY_WITH_TIMEOUT(chartView->chart()->series().size() >= 3, 5000);
     const auto series = chartView->chart()->series();
     QVERIFY2(series.size() >= 3, "应包含历史/预测/当前时刻三条序列");
 

@@ -17,6 +17,9 @@ private slots:
     void freshSamplesAndRestart();
     void activeOrderPreserved();
     void eventFailureRollsBack();
+    void missingForecastDoesNotDiscount();
+    void calibrateExcludesKnownAnomalies();
+    void sparseMeasurementsCannotDrivePricing();
 private:
     QTemporaryDir temporary;
     pcserver::StationStore store;
@@ -96,5 +99,43 @@ void TestServices::eventFailureRollsBack()
     QCOMPARE(scalar("SELECT health_level FROM piles"),1);
     QCOMPARE(spy.size(),1);
 }
+void TestServices::missingForecastDoesNotDiscount()
+{
+    QCOMPARE(pcserver::predictIdleRatePercent(store,1),-1.0);
+    pcserver::PricingService pricing(path);
+    pricing.setIdleRateProvider([this](int id) { return pcserver::predictIdleRatePercent(store,id); });
+    QVERIFY(pricing.start(60000));
+    QCOMPARE(scalar("SELECT COUNT(*) FROM marketing_strategy WHERE is_active=1"),0);
+    for(int hour=0;hour<12;++hour)
+        QVERIFY(store.execPrepared("INSERT INTO pile_power_logs(pile_id,real_power,logged_at) VALUES(1,0,?)",
+            {QDateTime::currentDateTime().addSecs(-hour*3600).toString("yyyy-MM-dd HH:mm:ss")}));
+    QCOMPARE(pcserver::predictIdleRatePercent(store,1),100.0);
+    pricing.runOnce();
+    QCOMPARE(scalar("SELECT CAST(discount*100 AS INTEGER) FROM marketing_strategy WHERE is_active=1"),80);
+}
+
+void TestServices::calibrateExcludesKnownAnomalies()
+{
+    pcserver::SelfHealService service(path);
+    QVERIFY(service.start(60000));
+    QString error;
+    QVERIFY(!service.rebuildThreshold(1,&error));
+    QCOMPARE(scalar("SELECT low_threshold FROM pile_health_metrics"),40);
+    sql("INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,50),(1,50),(1,50),(1,50),(1,50),(1,50),(1,5)");
+    QVERIFY2(service.rebuildThreshold(1,&error),qPrintable(error));
+    QCOMPARE(scalar("SELECT sample_count FROM pile_health_metrics"),6);
+    QCOMPARE(scalar("SELECT low_threshold FROM pile_health_metrics"),40);
+    sql("UPDATE piles SET health_level=1");
+    QVERIFY(!service.rebuildThreshold(1,&error));
+}
+
+void TestServices::sparseMeasurementsCannotDrivePricing()
+{
+    for(int hour=1;hour<=4;++hour)
+        QVERIFY(store.execPrepared("INSERT INTO pile_power_logs(pile_id,real_power,logged_at) VALUES(1,0,?)",
+            {QDateTime::currentDateTime().addSecs(-hour*3600).toString("yyyy-MM-dd HH:mm:ss")}));
+    QCOMPARE(pcserver::predictIdleRatePercent(store,1),-1.0);
+}
+
 QTEST_GUILESS_MAIN(TestServices)
 #include "tst_services.moc"

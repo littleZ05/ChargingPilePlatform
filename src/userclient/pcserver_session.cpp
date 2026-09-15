@@ -543,6 +543,10 @@ void PcServerSession::handleStationQueryPacket(const QByteArray &body)
             station.price       = object.value(QStringLiteral("price")).toDouble();
             station.discount    = object.value(QStringLiteral("discount")).toDouble(1.0);
             station.onSale      = object.value(QStringLiteral("is_discount")).toBool(false);
+            if (object.value("forecast_available").toBool()) {
+                station.predictedIdleRate = object.value("predicted_idle_rate").toDouble(-1);
+                station.predictedIdlePiles = object.value("predicted_idle_piles").toInt(-1);
+            }
             stations.append(station);
         }
     }

@@ -34,6 +34,7 @@ public:
 
     /** 立即扫描全部电桩（界面“立即检查”与定时器共用同一入口） */
     void runOnce();
+    bool rebuildThreshold(int pileId, QString *error = nullptr);
 
     /** 最近一次扫描统计（供「自愈告警」页 KPI 展示） */
     int lastScanned() const { return m_lastScanned; }

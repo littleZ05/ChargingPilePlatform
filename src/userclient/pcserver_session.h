@@ -18,6 +18,8 @@ namespace userclient {
 
 /** 服务器 kStationQuery 应答中的单座电站（docs/socket-protocol.md §3.2） */
 struct ServerStation {
+    double predictedIdleRate = -1;
+    int predictedIdlePiles = -1;
     int     id = 0;
     QString name;
     QString address;

@@ -290,6 +290,16 @@ SelfHealPanel::SelfHealPanel(StationStore *store, QWidget *parent)
     toolbar->addSpacing(12);
     toolbar->addWidget(lowBtn);
     toolbar->addWidget(okBtn);
+    auto *calibrate = new QPushButton(QStringLiteral("重算正常阈值"),this);
+    toolbar->addWidget(calibrate);
+    connect(calibrate,&QPushButton::clicked,this,[this] {
+        auto *service = activeSelfHealService();
+        QString error;
+        if(!service || !service->rebuildThreshold(selectedPileId(),&error))
+            QMessageBox::warning(this,QStringLiteral("阈值校准"),
+                service ? error : QStringLiteral("自愈服务未启动"));
+        else refresh();
+    });
     toolbar->addStretch(1);
     layout->addLayout(toolbar);
 

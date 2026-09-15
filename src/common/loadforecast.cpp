@@ -93,7 +93,7 @@ LoadForecastResult forecastLoad(const LoadForecastInput &input)
 {
     LoadForecastResult result;
 
-    const QVector<double> &history = input.historyKw;
+    const QVector<double> history = input.historyKw.mid(qMax(0, input.historyKw.size() - kMaxSamplesPerModel));
     if (!validateSamples(history, &result.error))
         return result;
 

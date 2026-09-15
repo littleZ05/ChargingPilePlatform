@@ -15,6 +15,9 @@ class TstLoadForecastData : public QObject
 private slots:
     void demoFallbackSamplesFeedEngine();
     void realLogAggregationTakesPriority();
+    void repeatedSamplesDoNotMultiplyLoad();
+    void measuredZeroIsNotMissing();
+    void missingHoursAreMarkedAndInterpolated();
 };
 
 namespace {
@@ -128,6 +131,64 @@ void TstLoadForecastData::realLogAggregationTakesPriority()
     QVERIFY(seen35);
     QVERIFY(seen40);
     QVERIFY(seen45);
+}
+
+void TstLoadForecastData::repeatedSamplesDoNotMultiplyLoad()
+{
+    StationStore store; QString error;
+    QVERIFY(store.open(makeTestDatabasePath(QStringLiteral("repeated-load.db")),&error));
+    QVERIFY(store.seedDemoIfEmpty(&error));
+    const auto station = store.listStations().first();
+    const auto pile = store.listPiles(station.id).first();
+    for (int hour=1; hour<=4; ++hour) {
+        const auto when=QDateTime::currentDateTime().addSecs(-hour*3600).toString("yyyy-MM-dd HH:mm:ss");
+        for (int repeat=0; repeat<10; ++repeat)
+            QVERIFY(store.execPrepared("INSERT INTO pile_power_logs(pile_id,real_power,logged_at) VALUES(?,?,?)",
+                                       {pile.id,30.0,when},&error));
+    }
+    bool demo=true;
+    const auto values=store.hourlyLoadSamples(station.id,12,&demo,&error);
+    QVERIFY(!demo);
+    for (int hour=1; hour<=4; ++hour) QCOMPARE(values[11-hour],30.0);
+}
+void TstLoadForecastData::measuredZeroIsNotMissing()
+{
+    StationStore store; QString error;
+    QVERIFY(store.open(makeTestDatabasePath(QStringLiteral("zero-load.db")),&error));
+    QVERIFY(store.seedDemoIfEmpty(&error));
+    QVERIFY(store.execPrepared("UPDATE piles SET state=0",{},&error));
+    const auto station=store.listStations().first();
+    const auto pile=store.listPiles(station.id).first();
+    for(int hour=0;hour<12;++hour)
+        QVERIFY(store.execPrepared("INSERT INTO pile_power_logs(pile_id,real_power,logged_at) VALUES(?,?,?)",
+            {pile.id,0.0,QDateTime::currentDateTime().addSecs(-hour*3600).toString("yyyy-MM-dd HH:mm:ss")},&error));
+    bool demo=true;
+    const auto values=store.hourlyLoadSamples(station.id,12,&demo,&error);
+    QVERIFY(!demo); QCOMPARE(values,QVector<double>(12,0));
+    const auto platform=store.platformHourlyLoadSamples(12,&demo,&error);
+    QVERIFY(!demo); QCOMPARE(platform,QVector<double>(12,0));
+}
+
+void TstLoadForecastData::missingHoursAreMarkedAndInterpolated()
+{
+    StationStore store; QString error;
+    QVERIFY(store.open(makeTestDatabasePath(QStringLiteral("gapped-load.db")),&error));
+    QVERIFY(store.seedDemoIfEmpty(&error));
+    const auto station=store.listStations().first();
+    const auto pile=store.listPiles(station.id).first();
+    // Observations at offsets -5,-3,-2,-1: the missing -4 bucket interpolates to 20.
+    const int offsets[]={5,3,2,1};
+    const double power[]={10,30,0,0};
+    for(int i=0;i<4;++i)
+        QVERIFY(store.execPrepared("INSERT INTO pile_power_logs(pile_id,real_power,logged_at) VALUES(?,?,?)",
+            {pile.id,power[i],QDateTime::currentDateTime().addSecs(-offsets[i]*3600).toString("yyyy-MM-dd HH:mm:ss")},&error));
+    bool demo=true; int imputed=-1;
+    const auto values=store.hourlyLoadSamples(station.id,12,&demo,&error,&imputed);
+    QVERIFY(!demo); QCOMPARE(imputed,8);
+    QCOMPARE(values[7],20.0);
+    QCOMPARE(values[0],10.0); // Leading edge carries nearest observation, never invented zero.
+    QCOMPARE(values[9],0.0); // Measured zero stays zero.
+    QCOMPARE(values[11],0.0);
 }
 
 QTEST_APPLESS_MAIN(TstLoadForecastData)

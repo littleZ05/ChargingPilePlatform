@@ -5,7 +5,7 @@
 // - 仅依赖 QtCore，不引入外部 ML/heavy 依赖；
 // - 支持最小二乘线性回归（OLS，默认）与加权移动平均（WMA）两种轻量模型；
 // - 输入：近 12/24 小时逐小时采样负荷（kW，旧 → 新）；
-// - 输出：未来 1~6 小时负荷预测 + 趋势 / 峰值；
+// - 输出：未来 1~24 小时负荷预测 + 趋势 / 峰值；
 // - 全程值类型 + RAII，无裸指针；对不足样本、非法值、除零均有防护。
 //
 #include <QString>
@@ -29,7 +29,7 @@ enum class LoadTrend {
 /** NO.17 模型常量与保护阈值（集中定义，便于答辩讲解与测试） */
 namespace LoadForecast {
 inline constexpr int    kMinSamples = 3;              // 少于 3 个采样点不做预测
-inline constexpr int    kMaxHorizonHours = 6;         // 最多预测未来 6 小时
+inline constexpr int    kMaxHorizonHours = 24;         // 最多预测未来 24 小时
 inline constexpr double kTrendToleranceKwPerHour = 0.5; // |斜率| < 0.5 kW/h 判为平稳
 inline constexpr double kZeroVarianceEpsilon = 1e-9;  // 除零保护阈值
 }
@@ -37,7 +37,7 @@ inline constexpr double kZeroVarianceEpsilon = 1e-9;  // 除零保护阈值
 /** 预测输入：逐小时负荷序列（旧 → 新） */
 struct LoadForecastInput {
     QVector<double> historyKw;       // 近 12/24h 采样（单位 kW），空/过短时返回错误
-    int horizonHours = 6;            // 未来 1~6 小时，越界自动收敛
+    int horizonHours = 6;            // 未来 1~24 小时，越界自动收敛
     ForecastModel model = ForecastModel::OLS;
     double capacityKw = 0.0;         // 电站额定可用容量；>0 时预测钳制到 [0, capacityKw]
 };

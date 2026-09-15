@@ -5,6 +5,8 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QTimer>
+#include <algorithm>
+#include <cmath>
 
 namespace pcserver {
 
@@ -71,15 +73,64 @@ double SelfHealService::thresholdOf(int pileId)
     if (q.exec() && q.next() && q.value(0).toDouble() > 0)
         return q.value(0).toDouble();
 
-    // 阈值缺失时用该桩历史实功率均值推算（仍是真实数据，不做任何伪造）
-    q.prepare(QStringLiteral("SELECT AVG(real_power) FROM pile_power_logs WHERE pile_id=?"));
-    q.addBindValue(pileId);
-    if (q.exec() && q.next()) {
-        const double avg = q.value(0).toDouble();
-        if (avg > 0)
-            return avg * (1.0 - cp::SelfHeal::kLowPowerRatio);
-    }
+    // Missing calibration is not permission to learn an abnormal live baseline.
+
     return 0.0;
+}
+
+bool SelfHealService::rebuildThreshold(int pileId, QString *error)
+{
+    const auto fail = [&](const QString &message) {
+        if (error) *error = message;
+        return false;
+    };
+    QSqlQuery p(m_db);
+    p.prepare(QStringLiteral("SELECT health_level,power_kw FROM piles WHERE id=?"));
+    p.addBindValue(pileId);
+    if (!p.exec() || !p.next()) return fail(QStringLiteral("电桩不存在"));
+    if (p.value(0).toInt()!=0) return fail(QStringLiteral("请先排查异常，不能以故障样本重设正常基线"));
+    const double rated = p.value(1).toDouble();
+    const double existing = thresholdOf(pileId);
+    QSqlQuery samples(m_db);
+    samples.prepare(QStringLiteral(
+        "SELECT real_power FROM pile_power_logs WHERE pile_id=? AND real_power>0 "
+        "ORDER BY id DESC LIMIT 100"));
+    samples.addBindValue(pileId);
+    if (!samples.exec()) return fail(QStringLiteral("功率记录读取失败"));
+    QVector<double> values;
+    while(samples.next()) {
+        const double power = samples.value(0).toDouble();
+        if (std::isfinite(power) && power <= rated*1.2 && (existing<=0 || power>=existing))
+            values.append(power);
+    }
+    if(values.size()<6) return fail(QStringLiteral("至少需要6条正常功率样本；原阈值保持不变"));
+    auto sorted = values;
+    std::sort(sorted.begin(),sorted.end());
+    const double median = sorted[sorted.size()/2];
+    QVector<double> normal;
+    for(double value:values)
+        if(value>=median*0.8 && value<=median*1.2) normal.append(value);
+    if(normal.size()<6) return fail(QStringLiteral("剔除离群值后不足6条，原阈值保持不变"));
+    double mean=0, movingRange=0;
+    for(int i=0;i<normal.size();++i) {
+        mean+=normal[i]/normal.size();
+        if(i) movingRange+=std::abs(normal[i]-normal[i-1])/(normal.size()-1);
+    }
+    // Operational low-power rule and moving-range upper control limit are explicit.
+    const double low = mean*(1.0-cp::SelfHeal::kLowPowerRatio);
+    const double high = mean+2.66*movingRange;
+    QSqlQuery update(m_db);
+    update.prepare(QStringLiteral(
+        "INSERT INTO pile_health_metrics(pile_id,avg_power,low_threshold,high_threshold,sample_count,updated_at) "
+        "VALUES(?,?,?,?,?,datetime('now','localtime')) ON CONFLICT(pile_id) DO UPDATE SET "
+        "avg_power=excluded.avg_power,low_threshold=excluded.low_threshold,high_threshold=excluded.high_threshold,"
+        "sample_count=excluded.sample_count,updated_at=excluded.updated_at"));
+    update.addBindValue(pileId); update.addBindValue(mean); update.addBindValue(low);
+    update.addBindValue(high); update.addBindValue(normal.size());
+    if(!update.exec()) return fail(QStringLiteral("阈值保存失败"));
+    emit message(QStringLiteral("[阈值校准] 桩%1：正常样本%2条，均值%3kW，低阈值%4kW，移动极差%5kW")
+                 .arg(pileId).arg(normal.size()).arg(mean).arg(low).arg(movingRange));
+    return true;
 }
 
 void SelfHealService::processPile(int pileId)

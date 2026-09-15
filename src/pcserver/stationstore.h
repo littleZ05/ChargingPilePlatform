@@ -61,6 +61,7 @@ struct DashboardSnapshot
     QVector<int>    order7d;        // 近 7 日订单数（旧→新）
 
     QVector<double> load24hKw;      // 近 24h 平台负荷采样（旧→新，末位=当前小时）
+    int    loadImputedHours = 0;
     bool   loadUsedDemoFallback = false; // 采样不足时是否走确定性仿真曲线
 
     bool    forecastOk = false;
@@ -118,7 +119,7 @@ public:
      * - ratedCapacityKw：电站额定可用容量 = Σ(piles.power_kw)，预测钳制上界；
      * - currentLoadKw：当前实时负荷 = Σ(充电中电桩 power_kw)；
      * - hourlyLoadSamples：返回最近 hours 个整点小时负荷（旧→新，单位 kW）。
-     *   数据策略：先真实聚合 pile_power_logs（电站维度按小时求和）；
+     *   数据策略：先真实聚合 pile_power_logs（分桩小时均值后按站求和）；
      *   有效样本不足（< max(3, hours/3)）时回退到确定性仿真采样曲线，
      *   并置 usedDemoFallback=true（UI 上如实标注“演示采样”）。
      */
@@ -126,7 +127,7 @@ public:
     double currentLoadKw(int stationId, QString *error = nullptr) const;
     QVector<double> hourlyLoadSamples(int stationId, int hours,
                                       bool *usedDemoFallback = nullptr,
-                                      QString *error = nullptr) const;
+                                      QString *error = nullptr, int *imputedHours = nullptr) const;
 
     /**
      * NO.16 平台级 24h 负荷采样（所有电站合计，策略与按站版一致）：
@@ -135,13 +136,13 @@ public:
      */
     QVector<double> platformHourlyLoadSamples(int hours,
                                               bool *usedDemoFallback = nullptr,
-                                              QString *error = nullptr) const;
+                                              QString *error = nullptr, int *imputedHours = nullptr) const;
 
     /**
      * NO.16 Web 大屏全量快照：
      * - 桩状态总量 / 在线率 / 实时总负荷（piles 实时库）；
      * - 今日与近 7 日已完成订单营收/订单数/电量；
-     * - 近 24h 平台负荷 + 复用 cp::forecastLoad 产出未来 1~6h 预测。
+     * - 近 24h 平台负荷 + 复用 cp::forecastLoad 产出未来 1~24h 预测。
      * 全部为只读参数化查询，供 DashboardApiServer / 测试调用。
      */
     bool dashboardSnapshot(DashboardSnapshot *out,

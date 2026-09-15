@@ -40,6 +40,8 @@ private:
     void     relocateByPlaceSearch(const QString &addr);
     QWidget *makeStationCard(const Station &station);
 
+    bool m_recommend = false;
+    bool m_serverData = false;
     QListWidget          *m_list = nullptr;
     QLineEdit            *m_searchEdit = nullptr;
     QLabel               *m_locLabel = nullptr;

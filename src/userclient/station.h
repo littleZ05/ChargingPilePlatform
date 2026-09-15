@@ -17,6 +17,8 @@ struct Pile {
 
 /** 充电站信息（对应数据库 stations 表，供用户端展示） */
 struct Station {
+    double predictedIdleRate = -1;
+    int predictedIdlePiles = -1;
     int     id         = 0;      // 服务器 station id（0 = 本地占位站，无后端数据）
     QString name;
     QString address;
