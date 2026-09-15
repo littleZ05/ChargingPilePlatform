@@ -452,7 +452,7 @@
           </article>
 
           <article class="kpi-card kpi-card--forecast">
-            <div class="kpi-label">未来 24h 预测峰值</div>
+            <div class="kpi-label" id="forecastKpiTitle">预测峰值</div>
             <div class="kpi-main">
               <div class="kpi-value-row">
                 <span class="kpi-value" id="kpiForecastValue" data-count="0" data-decimals="0">0</span>
@@ -479,7 +479,7 @@
       <section class="page" id="page-load" aria-label="负荷预测">
         <article class="panel panel--load">
           <header class="panel-head">
-            <h2 class="panel-title">近24小时充电负荷与未来24小时预测</h2>
+            <h2 class="panel-title" id="forecastChartTitle">历史负荷与预测</h2>
             <span class="panel-note">绿实线=历史实测 · 绿虚线=预测 · 单位 kW</span>
           </header>
           <div class="panel-body">
@@ -704,6 +704,8 @@
         var online = total - fault;
         var trend = k.forecastTrend || '--';
         var horizon = toNumber(k.forecastHorizon, 6);
+        document.getElementById('forecastKpiTitle').textContent = '未来 ' + horizon + 'h 预测峰值';
+        document.getElementById('forecastChartTitle').textContent = '近24小时负荷与未来' + horizon + '小时预测';
 
         renderValue('kpiTotalValue', total, 0);
         renderValue('kpiHealthValue', k.onlineRate, 1);

@@ -252,6 +252,7 @@ void StationDetailPage::setServerSession(userclient::PcServerSession *session)
             m_orderId = 0;
             m_charging = false;
             m_endBtn->setEnabled(false);
+            m_endBtn->setText(QStringLiteral("已结算"));
             m_costLabel->setText(QStringLiteral("已结算 ¥%1").arg(r.value("amount").toDouble(), 0, 'f', 2));
             m_chargingPile->setText(QStringLiteral("服务器已确认订单 #%1").arg(r.value("order_id").toInt()));
         });
@@ -429,10 +430,16 @@ bool StationDetailPage::restoreOrder(const QJsonObject &order)
     m_charging = freshStart;
     m_pendingPileCode.clear();
     m_hasStation = true;
+    m_station = Station{};
     m_station.id = order.value("station_id").toInt();
     m_activePile = order.value("pile_code").toString();
     m_activePower = order.value("power_kw").toDouble();
     m_serverUnitPrice = order.value("unit_price").toDouble();
+    m_station.price = m_serverUnitPrice;
+    m_station.type = m_activePower <= 7 ? QStringLiteral("慢充") : QStringLiteral("快充");
+    m_priceLabel->setText(QStringLiteral("本单锁定价 ¥%1/度").arg(m_serverUnitPrice,0,'f',2));
+    m_estSlider->setEnabled(true);
+    updateEstimate();
     const auto started = QDateTime::fromString(order.value("start_time").toString(),
                                              QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     m_elapsedSec = qMax<qint64>(0, started.secsTo(QDateTime::currentDateTime()));

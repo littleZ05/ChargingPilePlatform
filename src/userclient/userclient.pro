@@ -41,3 +41,6 @@ SOURCES += $$PWD/session_business.cpp
 QT += webenginewidgets
 SOURCES += map_routes.cpp
 HEADERS += map_routes.h
+
+SOURCES += $$PWD/user_theme.cpp
+HEADERS += $$PWD/user_theme.h
