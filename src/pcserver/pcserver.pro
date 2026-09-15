@@ -48,3 +48,11 @@ DISTFILES += \
     styles/dark_theme.qss
 
 QMAKE_CXXFLAGS += -Wall
+
+SOURCES += $$PWD/charge_service.cpp
+HEADERS += $$PWD/charge_service.h
+
+# Explicit dependency: qmake6 may omit qrc payload dependencies in Unicode paths.
+schema_resource.target = qrc_pcserver.cpp
+schema_resource.depends = $$PWD/../database/schema.sql
+QMAKE_EXTRA_TARGETS += schema_resource

@@ -69,6 +69,7 @@
 #include "loadforecast.h"
 #include "net_server.h"
 #include "opsconsole.h"
+#include "charge_service.h"
 #include "stationstore.h"
 #include "uitheme.h"
 
@@ -2916,7 +2917,10 @@ void MainWindow::startSocketServer()
     connect(d->netServer, &cp::NetServer::packetReceived,
             this, &MainWindow::handleSocketPacket);
 
-    const auto port = static_cast<quint16>(cp::kServerPort);
+    connect(d->netServer, &cp::NetServer::clientDisconnected, this,
+            [this](QTcpSocket *client) { m_sessionPhones.remove(client); });
+    const int configuredPort = qEnvironmentVariableIntValue("PCSERVER_PORT");
+    const auto port = static_cast<quint16>(configuredPort > 0 ? configuredPort : cp::kServerPort);
     d->socketStarted = d->netServer->startServer(port);
     if (d->socketStarted) {
         qInfo().noquote()
@@ -2981,20 +2985,27 @@ void MainWindow::handleSocketPacket(QTcpSocket *client, quint16 msgType,
     case static_cast<quint16>(cp::MsgType::kStationQuery):
         handleStationQueryPacket(client, body);
         break;
-    case static_cast<quint16>(cp::MsgType::kOrderReport):
-        handleOrderReportPacket(client, body);
-        break;
-    case static_cast<quint16>(cp::MsgType::kStartCharge):
-        handleStartChargePacket(client, body);
-        break;
-    case static_cast<quint16>(cp::MsgType::kLoginRequest):
+    case cp::MsgType::kLoginRequest:
         handleUserLoginPacket(client, body);
         break;
-    case static_cast<quint16>(cp::MsgType::kRechargeRequest):
-        handleRechargePacket(client, body);
+    case cp::MsgType::kOrderReport:
+    case cp::MsgType::kStopCharge:
+    case cp::MsgType::kStartCharge:
+    case cp::MsgType::kRechargeRequest:
+    case cp::MsgType::kProfileQuery:
+    case cp::MsgType::kProfileUpdate: {
+        QJsonObject request;
+        if (!parseSocketJsonObject(body, &request)) {
+            sendSocketReply(client, msgType, socketResponseEnvelope(400, QStringLiteral("请求必须是JSON对象")));
+            break;
+        }
+        pcserver::ChargeService service(d->store);
+        sendSocketReply(client, msgType, service.execute(msgType, m_sessionPhones.value(client), request));
+        refreshAll();
         break;
+    }
     default:
-        qWarning() << "[net] 收到未注册 MsgType:" << msgType;
+        sendSocketReply(client, msgType, socketResponseEnvelope(400, QStringLiteral("不支持的消息类型")));
         break;
     }
 }
@@ -3021,50 +3032,6 @@ void MainWindow::handleHeartbeatPacket(QTcpSocket *client, const QByteArray &bod
                     response);
 }
 
-void MainWindow::handleRechargePacket(QTcpSocket *client, const QByteArray &body)
-{
-    const auto msgType = static_cast<quint16>(cp::MsgType::kRechargeRequest);
-    QJsonObject request;
-    if (!parseSocketJsonObject(body, &request)) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            400, QStringLiteral("充值负载必须是 JSON 对象")));
-        return;
-    }
-    const QString phone = request.value(QStringLiteral("phone")).toString().trimmed();
-    const double amount = request.value(QStringLiteral("amount")).toDouble(0.0);
-    if (phone.isEmpty()) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            400, QStringLiteral("充值缺少必填字段：phone")));
-        return;
-    }
-    if (!d->store || !d->store->isOpen()) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(503, QStringLiteral("用户服务未就绪")));
-        return;
-    }
-
-    double balance = 0.0;
-    QString error;
-    if (!d->store->rechargeBalance(phone, amount, &balance, &error)) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            422, error.isEmpty() ? QStringLiteral("充值失败") : error));
-        return;
-    }
-
-    QJsonObject response = socketResponseEnvelope(0, QStringLiteral("充值成功"));
-    response.insert(QStringLiteral("phone"), phone);
-    response.insert(QStringLiteral("amount"), amount);
-    response.insert(QStringLiteral("balance"), balance);
-    sendSocketReply(client, msgType, response);
-
-    refreshUsers();
-    qInfo().noquote()
-        << QStringLiteral("[net][充值] phone=%1 +¥%2 余额=¥%3")
-               .arg(phone).arg(amount, 0, 'f', 2).arg(balance, 0, 'f', 2);
-}
 
 void MainWindow::handleUserLoginPacket(QTcpSocket *client,
                                        const QByteArray &body)
@@ -3113,6 +3080,7 @@ void MainWindow::handleUserLoginPacket(QTcpSocket *client,
     response.insert(QStringLiteral("balance"), balance);
     response.insert(QStringLiteral("status"), status);
     response.insert(QStringLiteral("created"), created);
+    m_sessionPhones.insert(client, phone);
     sendSocketReply(client, msgType, response);
     qInfo().noquote()
         << QStringLiteral("[net][登录] phone=%1 user=%2 created=%3")
@@ -3214,169 +3182,4 @@ void MainWindow::handleStationQueryPacket(QTcpSocket *client,
     }
 
     sendSocketReply(client, msgType, response);
-}
-
-void MainWindow::handleStartChargePacket(QTcpSocket *client,
-                                         const QByteArray &body)
-{
-    const auto msgType = static_cast<quint16>(cp::MsgType::kStartCharge);
-    QJsonObject request;
-    if (!parseSocketJsonObject(body, &request)) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            400, QStringLiteral("开始充电负载必须是 JSON 对象")));
-        return;
-    }
-
-    const QString phone = request.value(QStringLiteral("phone")).toString().trimmed();
-    const QString pileCode =
-        request.value(QStringLiteral("pile_code")).toString().trimmed();
-    if (phone.isEmpty() || pileCode.isEmpty()) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            400, QStringLiteral("开始充电缺少必填字段：phone / pile_code")));
-        return;
-    }
-    if (!d->store || !d->store->isOpen()) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            503, QStringLiteral("数据服务未就绪")));
-        return;
-    }
-
-    int orderId = 0;
-    int stationId = 0;
-    int pileId = 0;
-    double unitPrice = 0.0;
-    QString error;
-    if (!d->store->startChargingOrder(phone, pileCode, &orderId, &stationId,
-                                      &pileId, &unitPrice, &error)) {
-        // 区分"资源不存在 / 权限受限 / 状态冲突"，便于用户端按错误码统一提示
-        int code = 409;
-        if (error.contains(QStringLiteral("不存在")))
-            code = 404;
-        else if (error.contains(QStringLiteral("冻结")))
-            code = 403;
-        sendSocketReply(client, msgType, socketResponseEnvelope(code, error));
-        return;
-    }
-
-    refreshAll();
-
-    QJsonObject response = socketResponseEnvelope(0, QStringLiteral("充电已开始"));
-    response.insert(QStringLiteral("order_id"), orderId);
-    response.insert(QStringLiteral("pile_code"), pileCode);
-    response.insert(QStringLiteral("pile_id"), pileId);
-    response.insert(QStringLiteral("station_id"), stationId);
-    response.insert(QStringLiteral("unit_price"), unitPrice);
-    response.insert(QStringLiteral("start_time"),
-                    QDateTime::currentDateTime()
-                        .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
-    sendSocketReply(client, msgType, response);
-
-    qInfo().noquote()
-        << QStringLiteral("[net][开始充电] phone=%1 pile=%2 单价=%3 元/度 order=%4")
-               .arg(phone, pileCode)
-               .arg(unitPrice, 0, 'f', 2)
-               .arg(orderId);
-}
-
-void MainWindow::handleOrderReportPacket(QTcpSocket *client,
-                                         const QByteArray &body)
-{
-    const auto msgType = static_cast<quint16>(cp::MsgType::kOrderReport);
-    QJsonObject request;
-    if (!parseSocketJsonObject(body, &request)) {
-        sendSocketReply(client, msgType,
-                        socketResponseEnvelope(
-                            400, QStringLiteral("订单上报负载必须是 JSON 对象")));
-        return;
-    }
-
-    const QString orderNo =
-        request.value(QStringLiteral("order_no")).toString().trimmed();
-    const QString pileCode =
-        request.value(QStringLiteral("pile_code")).toString().trimmed();
-    const QJsonValue kwhValue = request.value(QStringLiteral("kwh"));
-    const QJsonValue amountValue = request.value(QStringLiteral("amount"));
-
-    const auto sendError = [&](int code, const QString &message) {
-        QJsonObject response = socketResponseEnvelope(code, message);
-        response.insert(QStringLiteral("order_no"), orderNo);
-        response.insert(QStringLiteral("pile_code"), pileCode);
-        response.insert(QStringLiteral("received"), false);
-        sendSocketReply(client, msgType, response);
-    };
-
-    if (orderNo.isEmpty() || pileCode.isEmpty() || !kwhValue.isDouble()
-        || !amountValue.isDouble()) {
-        sendError(400, QStringLiteral("订单上报缺少必填字段：order_no / pile_code / kwh / amount"));
-        return;
-    }
-    const double kwh = kwhValue.toDouble();
-    const double amount = amountValue.toDouble();
-    if (!std::isfinite(kwh) || kwh < 0.0 || kwh > 1000000.0
-        || !std::isfinite(amount) || amount < 0.0 || amount > 1000000000.0) {
-        sendError(400, QStringLiteral("电量或金额超出合法范围"));
-        return;
-    }
-
-    pcserver::PileInfo pile;
-    if (!d->store || !d->store->isOpen()
-        || !d->store->findPileByCode(pileCode, &pile)) {
-        sendError(404, QStringLiteral("电桩编码不存在：%1").arg(pileCode));
-        return;
-    }
-    if (pile.state == cp::PileState::Fault) {
-        sendError(409, QStringLiteral("电桩处于故障状态，暂不受理结算上报"));
-        return;
-    }
-
-    // 结算金额由服务器按“当前执行价”重算：客户端上报的 amount 仅作对账参考。
-    // 这样创新点1 的闲时折扣才真正作用于资金结算，而不是前端自己算一套。
-    double unitPrice = (kwh > 0.0) ? amount / kwh : 0.0;
-    double discount = 1.0;
-    bool onSale = false;
-    QString priceError;
-    d->store->currentPriceOf(pile.stationId, &unitPrice, &discount, &onSale, &priceError);
-    const double settleAmount = std::round(kwh * unitPrice * 100.0) / 100.0;
-
-    // 联调闭环：完成该桩“充电中”订单并落库（写订单/扣余额/更新桩累计）
-    int orderId = 0;
-    double balance = 0.0;
-    QString settleError;
-    if (!d->store->settleChargingOrderByCode(pileCode, kwh, settleAmount,
-                                             &orderId, &balance, &settleError)) {
-        sendError(409, settleError.isEmpty()
-                           ? QStringLiteral("结算失败")
-                           : settleError);
-        return;
-    }
-    refreshStations();
-
-    QJsonObject response = socketResponseEnvelope(
-        0, QStringLiteral("订单已受理并完成结算"));
-    response.insert(QStringLiteral("order_no"), orderNo);
-    response.insert(QStringLiteral("pile_code"), pileCode);
-    response.insert(QStringLiteral("pile_id"), pile.id);
-    response.insert(QStringLiteral("station_id"), pile.stationId);
-    response.insert(QStringLiteral("order_id"), orderId);
-    response.insert(QStringLiteral("kwh"), kwh);
-    response.insert(QStringLiteral("amount"), settleAmount);
-    response.insert(QStringLiteral("amount_reported"), amount);
-    response.insert(QStringLiteral("unit_price"), unitPrice);
-    response.insert(QStringLiteral("discount"), discount);
-    response.insert(QStringLiteral("on_sale"), onSale);
-    response.insert(QStringLiteral("balance"), balance);
-    response.insert(QStringLiteral("received"), true);
-    response.insert(QStringLiteral("pile_freed"), true);
-    sendSocketReply(client, msgType, response);
-
-    qInfo().noquote()
-        << QStringLiteral("[net][结算] order=%1 pile=%2 kwh=%3 单价=%4 元/度 折扣=%5 金额=%6 元")
-               .arg(orderNo, pileCode)
-               .arg(kwh, 0, 'f', 2)
-               .arg(unitPrice, 0, 'f', 2)
-               .arg(discount, 0, 'f', 2)
-               .arg(settleAmount, 0, 'f', 2);
 }

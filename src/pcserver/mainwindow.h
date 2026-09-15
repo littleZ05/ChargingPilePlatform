@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QString>
+#include <QHash>
 
 #include "stationstore.h"
 
@@ -54,9 +55,6 @@ private:
                          const QJsonObject &payload);
     void handleHeartbeatPacket(QTcpSocket *client, const QByteArray &body);
     void handleStationQueryPacket(QTcpSocket *client, const QByteArray &body);
-    void handleOrderReportPacket(QTcpSocket *client, const QByteArray &body);
-    void handleStartChargePacket(QTcpSocket *client, const QByteArray &body);
-    void handleRechargePacket(QTcpSocket *client, const QByteArray &body);
     void handleUserLoginPacket(QTcpSocket *client, const QByteArray &body);
     void refreshSales();
     void refreshPileStatus();
@@ -74,6 +72,8 @@ private:
     int selectedStationId() const;
     void selectStationById(int stationId);
     void onAddStationClicked();
+
+    QHash<QTcpSocket *, QString> m_sessionPhones;
 
     struct Private;
     Private *d;

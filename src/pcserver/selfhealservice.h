@@ -3,12 +3,10 @@
 //
 // 创新点2 落地版：自愈检查自动服务（服务器端定时任务）
 //
-// 真实口径（不含任何伪造数据）：
-// - 判定依据只来自 pile_power_logs 中“设备实际上报”的功率样本；
-// - 连续 cp::SelfHeal::kConsecutiveCount 次低于阈值 → piles.health_level 置 1(预警/需检查)，
-//   自动执行一次远程重启（把电桩运行状态复位为闲置），并写入 selfheal_events 留痕；
-// - 重启后仍持续低功率 → health_level 升级为 2(故障)，需人工介入；
-// - 功率样本恢复正常 → health_level 回到 0(正常)，并记录“预警解除”事件。
+// 功率样本来自充电结算或显式演示注入；这是模拟运维，不向物理设备发送指令。
+// 持久化样本游标避免重复消费；升级故障需要预警之后的三个新异常样本。
+// 状态、游标与事件原子提交；活动订单保持占用，健康等级控制是否可新开单。
+// 新正常样本可解除自愈状态。
 //
 #include <QObject>
 #include <QSqlDatabase>
@@ -51,10 +49,8 @@ signals:
 
 private:
     double thresholdOf(int pileId);
-    int healthLevelOf(int pileId);
     void processPile(int pileId);
-    void recordEvent(int pileId, int stationId, const QString &pileCode, int level,
-                     double threshold, double realPower, const QString &action);
+
 
     QSqlDatabase m_db;
     QTimer m_timer;

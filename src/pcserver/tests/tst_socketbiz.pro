@@ -39,3 +39,11 @@ RESOURCES += \
     $$PWD/../pcserver.qrc
 
 QMAKE_CXXFLAGS += -Wall
+
+SOURCES += $$PWD/../charge_service.cpp $$PWD/../opsconsole.cpp $$PWD/../pricingservice.cpp $$PWD/../selfhealservice.cpp
+HEADERS += $$PWD/../charge_service.h $$PWD/../opsconsole.h $$PWD/../pricingservice.h $$PWD/../selfhealservice.h
+
+# Explicit dependency: qmake6 may omit qrc payload dependencies in Unicode paths.
+schema_resource.target = qrc_pcserver.cpp
+schema_resource.depends = $$PWD/../../database/schema.sql
+QMAKE_EXTRA_TARGETS += schema_resource

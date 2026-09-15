@@ -18,6 +18,7 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QDateTime>
+#include <QMessageBox>
 
 namespace {
 constexpr int kDefaultPort = cp::kServerPort; // 9999
@@ -77,12 +78,16 @@ MainWindow::MainWindow(QWidget *parent)
                         << QStringLiteral("[net] PcServer 连接已断开，进入退避重连");
                 }
             });
+    const int configuredPort = qEnvironmentVariableIntValue("PCSERVER_PORT");
+    if (configuredPort > 0)
+        m_serverSession->setServerAddress(QStringLiteral("127.0.0.1"), configuredPort);
     m_serverSession->start();
     // NO.6/NO.4：登录回执刷新个人页；服务器电站列表接入首页
     connect(m_serverSession, &userclient::PcServerSession::loginResult,
             this, [this](int code, const QString &, const QString &,
                          const QString &nickname, double balance, bool created) {
                 if (code == 0) {
+                    m_root->setCurrentIndex(1);
                     m_profilePage->setUserInfo(nickname, balance);
                     statusBar()->showMessage(
                         created ? QStringLiteral("新用户已自动注册并登录")
@@ -110,6 +115,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_detailPage->setServerSession(m_serverSession);
     // NO.6：充值走服务器真实落库
     m_profilePage->setServerSession(m_serverSession);
+    connect(m_serverSession, &userclient::PcServerSession::businessResult, this,
+            [this](int type, const QJsonObject &r) {
+        if (type == cp::MsgType::kProfileQuery && r.value("code").toInt(-1) == 0
+            && m_detailPage->restoreOrder(r.value("active_order").toObject())) {
+            showTab(1);
+            m_navGroup->button(1)->setChecked(true);
+            QMessageBox::information(this, QStringLiteral("未完成订单"),
+                                     QStringLiteral("您有未完成的充电订单，请先结算。"));
+        }
+    });
 }
 
 MainWindow::~MainWindow()
@@ -173,7 +188,6 @@ void MainWindow::showMain(const QString &phone)
     } else {
         m_pendingLoginPhone = phone;
     }
-    m_root->setCurrentIndex(1);
     showTab(0);
     m_navGroup->button(0)->setChecked(true);
 }
@@ -207,5 +221,8 @@ void MainWindow::backToMain()
 
 void MainWindow::onLogout()
 {
+    m_serverSession->logout();
+    m_detailPage->clearOrder();
+    m_pendingLoginPhone.clear();
     m_root->setCurrentIndex(0);
 }

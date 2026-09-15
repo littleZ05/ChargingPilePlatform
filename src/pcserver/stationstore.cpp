@@ -181,6 +181,7 @@ bool StationStore::open(const QString &dbPath, QString *error)
     }
     QSqlQuery pragma(m_db);
     pragma.exec(QStringLiteral("PRAGMA foreign_keys = ON"));
+    pragma.exec(QStringLiteral("PRAGMA busy_timeout = 3000"));
     if (!executeSchema(error)) {
         close();
         return false;
@@ -305,28 +306,49 @@ bool StationStore::executeSchema(QString *error)
     }
     const QString sql = QString::fromUtf8(schemaFile.readAll());
 
+    // Schema changes are atomic: a conflicting old order must leave the old DB intact.
+    if (!m_db.transaction()) {
+        if (error) *error = m_db.lastError().text();
+        return false;
+    }
+    const auto fail = [&](const QString &message) {
+        m_db.rollback();
+        if (error) *error = message;
+        return false;
+    };
     const QStringList statements = splitSqlStatements(sql);
     for (const QString &statement : statements) {
         QSqlQuery q(m_db);
-        if (!q.exec(statement)) {
-            if (error)
-                *error = QStringLiteral("执行建表语句失败：%1\nSQL: %2")
-                             .arg(queryError(q), statement.trimmed());
-            return false;
+        if (!q.exec(statement))
+            return fail(QStringLiteral("数据库升级失败，已回滚；请检查重复活动订单或表结构：%1")
+                        .arg(queryError(q)));
+    }
+    struct Column { const char *table; const char *name; const char *definition; };
+    const Column columns[] = {
+        {"marketing_strategy", "predicted_idle_rate", "REAL NOT NULL DEFAULT 0"},
+        {"marketing_strategy", "decided_at", "TEXT"},
+        {"piles", "health_level", "INTEGER NOT NULL DEFAULT 0"}
+    };
+    for (const auto &column : columns) {
+        QSqlQuery fields(m_db);
+        if (!fields.exec(QStringLiteral("PRAGMA table_info(%1)").arg(column.table)))
+            return fail(queryError(fields));
+        bool present = false;
+        while (fields.next())
+            present = present || fields.value(1).toString() == QLatin1String(column.name);
+        fields.finish();
+        if (!present) {
+            QSqlQuery alter(m_db);
+            if (!alter.exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3")
+                            .arg(column.table, column.name, column.definition)))
+                return fail(queryError(alter));
         }
     }
-
-    // 增量迁移：为既有演示库补齐新增列（新建库时 schema.sql 已包含，执行会报"重复列"，
-    // 属幂等操作，忽略即可）。表级新增（selfheal_events）由上面 CREATE TABLE IF NOT EXISTS 覆盖。
-    const QStringList columnMigrations = {
-        QStringLiteral("ALTER TABLE marketing_strategy ADD COLUMN predicted_idle_rate REAL NOT NULL DEFAULT 0"),
-        QStringLiteral("ALTER TABLE marketing_strategy ADD COLUMN decided_at TEXT"),
-        QStringLiteral("ALTER TABLE piles ADD COLUMN health_level INTEGER NOT NULL DEFAULT 0")
-    };
-    for (const QString &sql : columnMigrations) {
-        QSqlQuery q(m_db);
-        q.exec(sql);
-    }
+    QSqlQuery version(m_db);
+    if (!version.exec(QStringLiteral("PRAGMA user_version=3")))
+        return fail(queryError(version));
+    if (!m_db.commit())
+        return fail(m_db.lastError().text());
     return true;
 }
 

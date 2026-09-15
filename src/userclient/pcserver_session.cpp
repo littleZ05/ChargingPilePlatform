@@ -74,6 +74,10 @@ void PcServerSession::start()
 
     m_running = true;
     m_connected = false;
+    m_authenticated = false;
+    m_loginPending = false;
+    m_stationPilesPending = false;
+    m_inflight.clear();
     m_awaitingPong = false;
     m_missedAcks = 0;
     m_stationQueryPending = false;
@@ -184,66 +188,18 @@ bool PcServerSession::queryStationPiles(int stationId)
 
 bool PcServerSession::startCharge(const QString &phone, const QString &pileCode)
 {
-    if (!m_running || !isConnected() || m_startChargePending)
-        return false;
-    if (phone.trimmed().isEmpty() || pileCode.trimmed().isEmpty())
-        return false;
-
-    QJsonObject request;
-    request.insert(QStringLiteral("phone"), phone.trimmed());
-    request.insert(QStringLiteral("pile_code"), pileCode.trimmed());
-    request.insert(QStringLiteral("ts"), QDateTime::currentSecsSinceEpoch());
-
-    const auto msgType = static_cast<quint16>(cp::MsgType::kStartCharge);
-    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
-        qWarning() << "[userclient][net] kStartCharge 发送失败";
-        return false;
-    }
-    m_startChargePending = true;
-    return true;
+    return command(cp::MsgType::kStartCharge, {{"phone", phone}, {"pile_code", pileCode}});
 }
 
 bool PcServerSession::recharge(const QString &phone, double amount)
 {
-    if (!m_running || !isConnected() || m_rechargePending)
-        return false;
-    if (phone.trimmed().isEmpty() || !(amount > 0.0))
-        return false;
-
-    QJsonObject request;
-    request.insert(QStringLiteral("phone"), phone.trimmed());
-    request.insert(QStringLiteral("amount"), amount);
-
-    const auto msgType = static_cast<quint16>(cp::MsgType::kRechargeRequest);
-    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
-        qWarning() << "[userclient][net] kRechargeRequest 发送失败";
-        return false;
-    }
-    m_rechargePending = true;
-    return true;
+    return command(cp::MsgType::kRechargeRequest, {{"phone", phone}, {"amount", amount}});
 }
 
 bool PcServerSession::reportOrder(const QString &orderNo, const QString &pileCode,
                                   double kwh, double amount)
 {
-    if (!m_running || !isConnected() || m_orderReportPending)
-        return false;
-
-    QJsonObject request;
-    request.insert(QStringLiteral("order_no"), orderNo.trimmed());
-    request.insert(QStringLiteral("pile_code"), pileCode.trimmed());
-    request.insert(QStringLiteral("kwh"), kwh);
-    request.insert(QStringLiteral("amount"), amount);
-    request.insert(QStringLiteral("ts"), QDateTime::currentSecsSinceEpoch());
-
-    const auto msgType = static_cast<quint16>(cp::MsgType::kOrderReport);
-    if (!m_netClient->sendPacket(msgType, compactJson(request))) {
-        qWarning() << "[userclient][net] kOrderReport 发送失败";
-        return false;
-    }
-
-    m_orderReportPending = true;
-    return true;
+    return command(cp::MsgType::kOrderReport, {{"order_id", orderNo.toInt()}, {"pile_code", pileCode}, {"kwh", kwh}, {"amount", amount}});
 }
 
 bool PcServerSession::login(const QString &phone)
@@ -256,6 +212,7 @@ bool PcServerSession::login(const QString &phone)
     const QByteArray payload = QJsonDocument(body).toJson(QJsonDocument::Compact);
     if (!m_netClient->sendPacket(msgType, payload))
         return false;
+    m_phone = phone;
     m_loginPending = true;
     return true;
 }
@@ -309,6 +266,8 @@ void PcServerSession::onConnected()
         << QStringLiteral("[userclient][net] 已连接 PcServer %1:%2")
                .arg(m_host)
                .arg(m_port);
+    if (!m_phone.isEmpty())
+        login(m_phone);
     emit connectedChanged(true);
 
     m_heartbeatTimer->start();
@@ -322,6 +281,10 @@ void PcServerSession::onDisconnected()
 
     const bool wasConnected = m_connected;
     m_connected = false;
+    m_authenticated = false;
+    m_loginPending = false;
+    m_stationPilesPending = false;
+    m_inflight.clear();
     m_awaitingPong = false;
 
     if (m_stationQueryPending)
@@ -341,6 +304,10 @@ void PcServerSession::onSocketError(const QString &errorString)
 
     const bool wasConnected = m_connected;
     m_connected = false;
+    m_authenticated = false;
+    m_loginPending = false;
+    m_stationPilesPending = false;
+    m_inflight.clear();
     m_awaitingPong = false;
 
     qWarning().noquote()
@@ -372,6 +339,8 @@ void PcServerSession::onSocketError(const QString &errorString)
 
 void PcServerSession::onPacketReceived(quint16 msgType, const QByteArray &body)
 {
+    if (receiveBusiness(msgType, body))
+        return;
     switch (msgType) {
     case static_cast<quint16>(cp::MsgType::kHeartbeat):
         handleHeartbeatPacket(body);
@@ -413,7 +382,12 @@ void PcServerSession::handleUserLoginPacket(const QByteArray &body)
     const QString nickname = obj.value(QStringLiteral("nickname")).toString();
     const double balance = obj.value(QStringLiteral("balance")).toDouble();
     const bool created = obj.value(QStringLiteral("created")).toBool(false);
+    m_authenticated = code == 0;
     emit loginResult(code, message, phone, nickname, balance, created);
+    if (m_authenticated) {
+        restoreCommands();
+        command(cp::MsgType::kProfileQuery);
+    }
 }
 
 void PcServerSession::sendHeartbeat()
