@@ -35,8 +35,16 @@ def main():
     selected = [p for p in projects if args.filter in str(p.relative_to(root))]
     if not selected and args.filter != 'tools/tests':
         parser.error('filter matched no projects')
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-    dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True))
+    git_root = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=root,
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    is_checkout = git_root.returncode == 0 and Path(git_root.stdout.strip()).resolve() == root
+    if is_checkout:
+        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True))
+    else:
+        marker = root / 'SOURCE_REVISION'
+        revision = marker.read_text().strip() if marker.exists() else 'unversioned-source'
+        dirty = False
     results = []
     for project in selected:
         name = str(project.relative_to(root)).replace('/', '__')[:-4]

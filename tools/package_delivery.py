@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Produce a reproducible source delivery archive and checksums from a verified clean commit."""
 import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -18,8 +19,17 @@ if report['commit'] != revision or report.get('dirty') or any(x['exit_code'] for
 output = root / 'build-delivery' / revision[:8]
 output.mkdir(parents=True, exist_ok=True)
 archive = output / 'ChargingPilePlatform-source.tar.gz'
-subprocess.run(['git', 'archive', '--format=tar.gz', '--prefix=ChargingPilePlatform/',
-                '-o', str(archive), revision], cwd=root, check=True)
+source_tar = subprocess.check_output(['git', 'archive', '--format=tar',
+                                      '--prefix=ChargingPilePlatform/', revision], cwd=root)
+with tarfile.open(fileobj=io.BytesIO(source_tar), mode='r:') as original:
+    with tarfile.open(archive, 'w:gz') as delivered:
+        for member in original:
+            delivered.addfile(member, original.extractfile(member) if member.isfile() else None)
+        marker = (revision + '\n').encode()
+        member = tarfile.TarInfo('ChargingPilePlatform/SOURCE_REVISION')
+        member.size = len(marker)
+        member.mode = 0o644
+        delivered.addfile(member, io.BytesIO(marker))
 shutil.copy2(report_path, output / 'verification.json')
 with tarfile.open(output / 'test-evidence.tar.gz', 'w:gz') as evidence:
     for path in sorted((root / 'build-verification').rglob('*')):
