@@ -35,3 +35,5 @@ HEADERS += \
     ../common/packet_assembler.h
 
 QMAKE_CXXFLAGS += -Wall
+
+SOURCES += $$PWD/session_business.cpp

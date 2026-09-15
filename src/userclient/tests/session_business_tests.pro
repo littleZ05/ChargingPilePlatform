@@ -4,13 +4,13 @@ QT       += core network testlib
 CONFIG   += console c++17 testcase
 CONFIG   -= app_bundle
 
-TARGET   = pcserver_session_tests
+TARGET   = session_business_tests
 TEMPLATE = app
 
 INCLUDEPATH += $$PWD/.. $$PWD/../../common
 
 SOURCES += \
-    $$PWD/tst_pcserver_session.cpp \
+    $$PWD/tst_session_business.cpp \
     $$PWD/../pcserver_session.cpp \
     $$PWD/../../common/net_client.cpp \
     $$PWD/../../common/net_server.cpp \

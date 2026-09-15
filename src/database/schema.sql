@@ -189,3 +189,25 @@ CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 -- 自愈事件：按桩与时间检索（"自愈告警"页流水与最近事件查询）
 CREATE INDEX IF NOT EXISTS idx_selfheal_pile ON selfheal_events(pile_id);
 CREATE INDEX IF NOT EXISTS idx_selfheal_time ON selfheal_events(created_at);
+
+-- v3: successful business requests are committed with their effects.
+CREATE TABLE IF NOT EXISTS request_receipts (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    request_id TEXT NOT NULL,
+    msg_type INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    response BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(user_id, request_id)
+);
+
+-- Existing conflicts must be reviewed before migration; never discard orders.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_order_user ON orders(user_id) WHERE state=0;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_order_pile ON orders(pile_id) WHERE state=0;
+
+-- Durable sample cursor: restarting the process must not reuse old evidence.
+CREATE TABLE IF NOT EXISTS selfheal_cursors (
+    pile_id INTEGER PRIMARY KEY REFERENCES piles(id),
+    last_sample_id INTEGER NOT NULL DEFAULT 0,
+    warning_sample_id INTEGER NOT NULL DEFAULT 0
+);

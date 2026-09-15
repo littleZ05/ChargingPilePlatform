@@ -1,0 +1,109 @@
+{
+  "commit": "20495d0",
+  "timestamp": "2026-09-15T17:30:03.546837+08:00",
+  "results": [
+    {
+      "project": "src/pcserver/pcserver.pro",
+      "exit_code": 0,
+      "seconds": 35.9,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__pcserver/verify.log"
+    },
+    {
+      "project": "src/userclient/userclient.pro",
+      "exit_code": 0,
+      "seconds": 30.7,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__userclient__userclient/verify.log"
+    },
+    {
+      "project": "src/common/tests/error_utils_tests.pro",
+      "exit_code": 0,
+      "seconds": 4.8,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__common__tests__error_utils_tests/verify.log"
+    },
+    {
+      "project": "src/common/tests/loadforecast_tests.pro",
+      "exit_code": 0,
+      "seconds": 8.9,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__common__tests__loadforecast_tests/verify.log"
+    },
+    {
+      "project": "src/common/tests/net_socket_tests.pro",
+      "exit_code": 0,
+      "seconds": 10.7,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__common__tests__net_socket_tests/verify.log"
+    },
+    {
+      "project": "src/common/tests/packet_assembler_tests.pro",
+      "exit_code": 0,
+      "seconds": 4.1,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__common__tests__packet_assembler_tests/verify.log"
+    },
+    {
+      "project": "src/common/tests/protocol_tests.pro",
+      "exit_code": 0,
+      "seconds": 0.2,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__common__tests__protocol_tests/verify.log"
+    },
+    {
+      "project": "src/innovation_demo/tests/innovation_tests.pro",
+      "exit_code": 0,
+      "seconds": 5.4,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__innovation_demo__tests__innovation_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/dashboardapi_tests.pro",
+      "exit_code": 0,
+      "seconds": 15.7,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__dashboardapi_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/loadforecastdata_tests.pro",
+      "exit_code": 0,
+      "seconds": 9.3,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__loadforecastdata_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/schema_tests.pro",
+      "exit_code": 0,
+      "seconds": 9.2,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__schema_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/services_tests.pro",
+      "exit_code": 2,
+      "seconds": 8.4,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__services_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/stationstore_tests.pro",
+      "exit_code": 1,
+      "seconds": 9.6,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__stationstore_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/stationui_tests.pro",
+      "exit_code": 2,
+      "seconds": 29.0,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__stationui_tests/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/tst_socketbiz.pro",
+      "exit_code": 2,
+      "seconds": 32.7,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__tst_socketbiz/verify.log"
+    },
+    {
+      "project": "src/pcserver/tests/usermanagement_tests.pro",
+      "exit_code": 2,
+      "seconds": 29.3,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__pcserver__tests__usermanagement_tests/verify.log"
+    },
+    {
+      "project": "src/userclient/tests/pcserver_session_tests.pro",
+      "exit_code": 0,
+      "seconds": 14.4,
+      "log": "/home/bit/桌面/dongruan_ws/ChargingPilePlatform/build-verification/src__userclient__tests__pcserver_session_tests/verify.log"
+    }
+  ],
+  "note": "Baseline source unchanged during execution; verification tool added on PR30."
+}

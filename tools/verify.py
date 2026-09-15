@@ -28,12 +28,15 @@ def main():
     env['QT_QPA_PLATFORM'] = 'offscreen'
     # Qt tests that use application data never touch the user's existing DB.
     env['XDG_DATA_HOME'] = str(output / 'app-data')
+    env['XDG_CONFIG_HOME'] = str(output / 'app-config')
     projects = [root / 'src/pcserver/pcserver.pro',
                 root / 'src/userclient/userclient.pro']
     projects += sorted(root.glob('src/*/tests/*.pro'))
     selected = [p for p in projects if args.filter in str(p.relative_to(root))]
     if not selected:
         parser.error('filter matched no projects')
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+    dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True))
     results = []
     for project in selected:
         name = str(project.relative_to(root)).replace('/', '__')[:-4]
@@ -65,8 +68,7 @@ def main():
         print(('PASS' if code == 0 else 'FAIL') + ' ' + result['project'], flush=True)
         if code:
             print('\n'.join(log.read_text(errors='replace').splitlines()[-14:]), flush=True)
-    report = dict(commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'],
-                                                 cwd=root, text=True).strip(),
+    report = dict(commit=revision, dirty=dirty,
                   timestamp=datetime.datetime.now().astimezone().isoformat(),
                   results=results)
     report_path = output / ('report-' + (args.filter.replace('/', '_') or 'all') + '.json')

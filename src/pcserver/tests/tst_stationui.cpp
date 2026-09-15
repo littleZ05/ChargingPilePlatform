@@ -73,7 +73,17 @@ void TstStationUi::allTabsSwitchWithoutCrash()
     MainWindow window(&store);
     auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainTabs"));
     QVERIFY(tabs);
-    QCOMPARE(tabs->count(), 6);
+    const QStringList required = {QStringLiteral("销售业绩"), QStringLiteral("负荷预测"),
+        QStringLiteral("电桩状态"), QStringLiteral("充电站管理"), QStringLiteral("用户管理"),
+        QStringLiteral("充电桩管理"), QStringLiteral("价格策略"), QStringLiteral("自愈告警"),
+        QStringLiteral("运行日志"), QStringLiteral("交付自检")};
+    QCOMPARE(tabs->count(), required.size());
+    for (const auto &name : required) {
+        bool found = false;
+        for (int i = 0; i < tabs->count(); ++i)
+            found = found || tabs->tabText(i) == name;
+        QVERIFY2(found, qPrintable(name));
+    }
 
     for (int i = 0; i < tabs->count(); ++i) {
         QVERIFY(tabs->widget(i));

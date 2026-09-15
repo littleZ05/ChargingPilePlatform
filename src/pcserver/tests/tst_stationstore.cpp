@@ -491,7 +491,7 @@ void TstStationStore::userLoginAutoRegistersAndReturnsExisting()
              qPrintable(error));
     QVERIFY(created);
     QCOMPARE(nickname, QStringLiteral("用户9999"));
-    QCOMPARE(balance, 0.0);
+    QCOMPARE(balance, 100.0); // Documented demo registration credit.
     QCOMPARE(status, 0);
     const int firstId = userId;
 

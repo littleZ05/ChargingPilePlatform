@@ -177,6 +177,8 @@ StationDetailPage::StationDetailPage(QWidget *parent)
 
 void StationDetailPage::setStation(const Station &station)
 {
+    if (m_orderId > 0 || m_phase == Phase::Starting)
+        return;
     m_station = station;
     m_hasStation = true;
     m_charging = false;
@@ -224,8 +226,35 @@ void StationDetailPage::setServerSession(userclient::PcServerSession *session)
         disconnect(m_session, nullptr, this, nullptr);
     m_session = session;
     if (m_session) {
-        connect(m_session, &userclient::PcServerSession::orderReportResult,
-                this, &StationDetailPage::onOrderReportResult);
+        connect(m_session, &userclient::PcServerSession::businessResult, this,
+                [this](int type, const QJsonObject &r) {
+            if (type == cp::MsgType::kStartCharge && r.value("code").toInt(-1) == 0) {
+                // Receipt replay may refer to an old start; query authoritative active order
+                // rather than restarting the timer from a stale success receipt.
+                m_phase = Phase::Idle;
+                m_chargingPile->setText(QStringLiteral("建单已确认，正在恢复订单状态…"));
+            }
+            if (type == cp::MsgType::kStartCharge && r.value("code").toInt() != 0) {
+                m_phase = Phase::Idle;
+                m_chargingPile->setText(r.value("message").toString());
+            }
+            if (type != cp::MsgType::kOrderReport && type != cp::MsgType::kStopCharge)
+                return;
+            if (r.value("code").toInt(-1) != 0) {
+                m_phase = Phase::SettlementFailed;
+                m_endBtn->setEnabled(true);
+                m_endBtn->setText(QStringLiteral("重试结算"));
+                m_chargingPile->setText(r.value("message").toString());
+                return;
+            }
+            m_timer->stop();
+            m_phase = Phase::Completed;
+            m_orderId = 0;
+            m_charging = false;
+            m_endBtn->setEnabled(false);
+            m_costLabel->setText(QStringLiteral("已结算 ¥%1").arg(r.value("amount").toDouble(), 0, 'f', 2));
+            m_chargingPile->setText(QStringLiteral("服务器已确认订单 #%1").arg(r.value("order_id").toInt()));
+        });
         connect(m_session, &userclient::PcServerSession::startChargeResult,
                 this, &StationDetailPage::onStartChargeResult);
     }
@@ -238,8 +267,6 @@ void StationDetailPage::setPhone(const QString &phone)
 
 void StationDetailPage::applyServerPiles(const QVector<userclient::ServerPile> &piles)
 {
-    if (piles.isEmpty())
-        return;   // 服务器未返回时保留本地占位列表
 
     m_station.piles.clear();
     for (const userclient::ServerPile &sp : piles) {
@@ -279,6 +306,9 @@ void StationDetailPage::onStartChargeResult(int code, const QString &message,
         return;
     }
 
+    m_phase = Phase::Charging;
+    m_orderId = orderId;
+    m_endBtn->setText(QStringLiteral("结束并结算"));
     m_charging = true;
     m_activePile = pileCode.isEmpty() ? m_pendingPileCode : pileCode;
     m_activePower = m_pendingPower > 0.0 ? m_pendingPower : defaultPower();
@@ -354,81 +384,84 @@ QWidget *StationDetailPage::makePileCard(const Pile &p)
 
 void StationDetailPage::startCharging(const Pile &pile)
 {
-    if (!m_hasStation || m_charging) return;
-
-    // 真实链路优先：先向服务器发起建单（kStartCharge），服务器在事务内写入
-    // orders(state=0) 并把该桩置为「充电中」，同时返回本次执行价。
-    // 只有建单成功才开始计时；未连接服务器时才如实降级为本地演示并明确提示。
-    const bool online = (m_session && m_session->isConnected() && !m_phone.isEmpty());
-    if (online) {
-        m_pendingPileCode = pile.code;
-        m_pendingPower = pile.powerKw;
-        if (m_session->startCharge(m_phone, pile.code)) {
-            m_chargingPile->setText(QStringLiteral("正在向服务器建单：%1 …").arg(pile.code));
-            m_endBtn->setEnabled(false);
-            return;   // 结果由 onStartChargeResult 处理
-        }
+    if (!m_hasStation || m_orderId > 0 || m_phase == Phase::Starting)
+        return;
+    m_pendingPileCode = pile.code;
+    m_pendingPower = pile.powerKw;
+    if (!m_session || !m_session->startCharge(m_phone, pile.code)) {
         QMessageBox::warning(this, QStringLiteral("无法开始充电"),
-                             QStringLiteral("建单请求发送失败，请稍后重试。"));
+                             QStringLiteral("请连接服务器并登录，或等待上一请求确认。"));
         return;
     }
-
-    m_charging = true;
-    m_activePile = pile.code;
-    m_activePower = pile.powerKw;
-    m_elapsedSec = 0;
-    m_kwh = 0.0;
-
-    m_chargingPile->setText(QStringLiteral("当前电桩：%1 · %2 %3kW")
-                                .arg(pile.code, pile.type)
-                                .arg(QString::number(pile.powerKw, 'f', 0)));
-    m_timeLabel->setText(QStringLiteral("00:00:00"));
-    m_kwhLabel->setText(QStringLiteral("已充 0.00 kWh"));
-    m_costLabel->setText(QStringLiteral("¥ 0.00"));
-    m_endBtn->setEnabled(true);
-    m_timer->start();
+    m_phase = Phase::Starting;
+    m_chargingPile->setText(QStringLiteral("正在确认电桩…"));
+    m_endBtn->setEnabled(false);
 }
 
 void StationDetailPage::endCharging()
 {
-    if (!m_charging) return;
+    if (m_orderId <= 0 || m_phase == Phase::Settling)
+        return;
     m_timer->stop();
     m_charging = false;
+    m_phase = Phase::SettlementFailed;
+    if (!m_session || !m_session->reportOrder(QString::number(m_orderId), m_activePile,
+                                              m_kwh, m_kwh * m_serverUnitPrice)) {
+        m_chargingPile->setText(QStringLiteral("尚未确认结算，请连接服务器后重试"));
+        m_endBtn->setEnabled(true);
+        return;
+    }
+    m_phase = Phase::Settling;
+    m_chargingPile->setText(QStringLiteral("结算待服务器确认…"));
+    m_endBtn->setEnabled(false);
+}
 
-    const double cost = m_kwh * effectivePrice(m_station);
-    const QString pileCode = m_activePile;
-    const QString dur = formatDuration(m_elapsedSec);
-    const QString kwhText = QString::number(m_kwh, 'f', 2);
-    const QString costText = QString::number(cost, 'f', 2);
+bool StationDetailPage::restoreOrder(const QJsonObject &order)
+{
+    const int id = order.value("order_id").toInt();
+    if (id <= 0 || id == m_orderId)
+        return false;
+    m_timer->stop();
+    m_orderId = id;
+    const bool freshStart = !m_pendingPileCode.isEmpty()
+                            && m_pendingPileCode == order.value("pile_code").toString();
+    m_phase = freshStart ? Phase::Charging : Phase::SettlementFailed;
+    m_charging = freshStart;
+    m_pendingPileCode.clear();
+    m_hasStation = true;
+    m_station.id = order.value("station_id").toInt();
+    m_activePile = order.value("pile_code").toString();
+    m_activePower = order.value("power_kw").toDouble();
+    m_serverUnitPrice = order.value("unit_price").toDouble();
+    const auto started = QDateTime::fromString(order.value("start_time").toString(),
+                                             QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    m_elapsedSec = qMax<qint64>(0, started.secsTo(QDateTime::currentDateTime()));
+    m_kwh = m_activePower * m_elapsedSec / 3600.0;
+    m_nameLabel->setText(order.value("station_name").toString());
+    m_chargingPile->setText(QStringLiteral("您有未完成的充电订单 #%1，请先结算（按时长模拟电量）").arg(id));
+    m_timeLabel->setText(formatDuration(m_elapsedSec));
+    m_kwhLabel->setText(QStringLiteral("已充 %1 kWh").arg(m_kwh, 0, 'f', 2));
+    m_costLabel->setText(QStringLiteral("预计 ¥%1").arg(m_kwh*m_serverUnitPrice, 0, 'f', 2));
+    m_endBtn->setText(QStringLiteral("结算未完成订单"));
+    m_endBtn->setEnabled(true);
+    if (freshStart) {
+        m_endBtn->setText(QStringLiteral("结束并结算"));
+        m_chargingPile->setText(QStringLiteral("正在充电：%1，单价已锁定").arg(m_activePile));
+        m_timer->start();
+    }
+    return !freshStart;
+}
 
-    // NO.7 闭环：生成订单并追加到「我的」页订单列表（无论是否连上服务器）
-    const QString orderNo = QStringLiteral("NO%1").arg(QDateTime::currentSecsSinceEpoch());
-    Order order;
-    order.orderNo  = orderNo;
-    order.pileCode = pileCode;
-    order.time     = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd hh:mm"));
-    order.kwh      = m_kwh;
-    order.amount   = cost;
-    order.state    = QStringLiteral("已结算");
-    emit chargeCompleted(order);
-
+void StationDetailPage::clearOrder()
+{
+    m_timer->stop();
+    m_orderId = 0;
+    m_phase = Phase::Idle;
+    m_charging = false;
+    m_hasStation = false;
+    m_kwh = 0;
     resetChargingView();
     m_endBtn->setEnabled(false);
-
-    // NO.7 结算触发点：向服务器上报一次订单（结算落库），结果经 onOrderReportResult 回显
-    bool reported = false;
-    if (m_session && m_session->isConnected()) {
-        m_pendingOrderNo = orderNo;
-        reported = m_session->reportOrder(m_pendingOrderNo, pileCode, m_kwh, cost);
-    }
-
-    QString summary = QStringLiteral("电桩：%1\n时长：%2\n电量：%3 kWh\n费用：¥%4")
-                          .arg(pileCode, dur, kwhText, costText);
-    summary += reported
-        ? QStringLiteral("\n\n结算已上报服务器，等待确认…")
-        : QStringLiteral("\n\n（未连接服务器，仅本地模拟结算）");
-
-    QMessageBox::information(this, QStringLiteral("充电完成"), summary);
 }
 
 void StationDetailPage::onOrderReportResult(int code, const QString &message,
@@ -455,7 +488,7 @@ void StationDetailPage::onTick()
     ++m_elapsedSec;
     m_kwh += m_activePower / 3600.0;
     // 费用展示用服务器返回的执行价（含闲时折扣），与实际结算口径一致
-    const double unitPrice = m_serverUnitPrice > 0.0 ? m_serverUnitPrice : effectivePrice(m_station);
+    const double unitPrice = m_serverUnitPrice;
     const double cost = m_kwh * unitPrice;
     m_timeLabel->setText(formatDuration(m_elapsedSec));
     m_kwhLabel->setText(QStringLiteral("已充 %1 kWh").arg(QString::number(m_kwh, 'f', 2)));

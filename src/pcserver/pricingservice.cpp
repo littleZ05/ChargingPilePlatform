@@ -56,6 +56,7 @@ PricingService::~PricingService()
 {
     stop();
     if (m_db.isOpen()) m_db.close();
+    m_db = QSqlDatabase();
     QSqlDatabase::removeDatabase(m_conn);
 }
 bool PricingService::start(int intervalMs, QString *err)
@@ -76,6 +77,7 @@ bool PricingService::start(int intervalMs, QString *err)
 void PricingService::stop()
 {
     if (m_timer.isActive()) m_timer.stop();
+    if (activePricingService() == this) activePricingService() = nullptr;
 }
 void PricingService::setIdleRateProvider(std::function<double(int)> provider)
 {

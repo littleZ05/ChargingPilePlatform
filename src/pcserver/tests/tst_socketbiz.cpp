@@ -233,139 +233,69 @@ void TstSocketBiz::orderReportFreesChargingPile()
 {
     QString error;
     StationStore store;
-    const QString dbPath = makeTestDatabasePath(QStringLiteral("socket-order.db"));
-    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
-    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
-    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
-
-    const QVector<StationInfo> stations = store.listStations();
-    QVERIFY(!stations.isEmpty());
-    QVector<PileInfo> piles = store.listPiles(stations.first().id);
-    QVERIFY(!piles.isEmpty());
-    const PileInfo target = piles.first();
-    QVERIFY2(store.setPileState(target.id, cp::PileState::Charging, &error),
-             qPrintable(error));
-
-    // 业务规则：结算只受理“充电中”订单；按真实联调链路先建单再上报
-    QSqlDatabase db = QSqlDatabase::database(store.connectionName());
-    QSqlQuery q(db);
-    const QStringList setup = {
-        QStringLiteral("INSERT INTO users(id,phone,nickname,balance,status) "
-                       "VALUES(1,'13800000001','结算测试用户',100,0)"),
-        QStringLiteral("INSERT INTO orders(user_id,pile_id,station_id,"
-                       "start_time,state) "
-                       "VALUES(1,%1,%2,datetime('now','-30 minutes','localtime'),0)")
-            .arg(target.id)
-            .arg(target.stationId)
-    };
-    for (const QString &statement : setup) {
-        QVERIFY2(q.exec(statement), q.lastError().text().toUtf8());
-    }
-
+    QVERIFY(store.open(makeTestDatabasePath(QStringLiteral("socket-order-v3.db")), &error));
+    QVERIFY(store.seedDemoIfEmpty(&error));
+    const auto target = store.listPiles(store.listStations().first().id).first();
+    QVERIFY(store.setPileState(target.id, cp::PileState::Idle, &error));
     MainWindow window(&store);
     cp::NetClient client;
-    QList<quint16> types;
-    QList<QByteArray> bodies;
+    QList<QJsonObject> replies;
     connect(&client, &cp::NetClient::packetReceived, this,
-            [&](quint16 msgType, const QByteArray &body) {
-                types.append(msgType);
-                bodies.append(body);
-            });
-
-    client.connectToServer(QStringLiteral("127.0.0.1"),
-                           static_cast<quint16>(cp::kServerPort));
+            [&](quint16, const QByteArray &body) { replies.append(jsonObjectOf(body)); });
+    client.connectToServer(QStringLiteral("127.0.0.1"), cp::kServerPort);
     QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 5000);
-
-    const auto reportType =
-        static_cast<quint16>(cp::MsgType::kOrderReport);
-    const QString request =
-        QStringLiteral("{\"order_no\":\"NO-TEST-001\",\"pile_code\":\"%1\","
-                       "\"kwh\":12.5,\"amount\":25.00}")
-            .arg(target.code);
-    QVERIFY(client.sendPacket(reportType, request.toUtf8()));
-
-    QTRY_COMPARE_WITH_TIMEOUT(bodies.size(), 1, 5000);
-    QCOMPARE(types.first(), reportType);
-    const QJsonObject response = jsonObjectOf(bodies.first());
-    QCOMPARE(response.value(QStringLiteral("code")).toInt(-1), 0);
-    QCOMPARE(response.value(QStringLiteral("order_no")).toString(),
-             QStringLiteral("NO-TEST-001"));
-    QCOMPARE(response.value(QStringLiteral("pile_code")).toString(),
-             target.code);
-    QCOMPARE(response.value(QStringLiteral("pile_id")).toInt(-1), target.id);
-    QCOMPARE(response.value(QStringLiteral("station_id")).toInt(-1),
-             target.stationId);
-    QCOMPARE(response.value(QStringLiteral("received")).toBool(), true);
-    QCOMPARE(response.value(QStringLiteral("pile_freed")).toBool(), true);
-
-    piles = store.listPiles(stations.first().id);
-    for (const PileInfo &pile : piles) {
-        if (pile.id == target.id)
-            QCOMPARE(pile.state, cp::PileState::Idle);
-    }
+    const auto send = [&](int type, const QJsonObject &request) {
+        return client.sendPacket(type, QJsonDocument(request).toJson(QJsonDocument::Compact));
+    };
+    QVERIFY(send(10, {{"phone", "13800000001"}}));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 1, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 0);
+    QVERIFY(send(4, {{"request_id", "start"}, {"pile_code", target.code}}));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 2, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 0);
+    const int order = replies.last().value("order_id").toInt();
+    QVERIFY(order > 0);
+    const QJsonObject settlement{{"request_id", "settle"}, {"order_id", order}, {"kwh", 0}};
+    QVERIFY(send(2, settlement));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 3, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 0);
+    QVERIFY(replies.last().value("received").toBool());
+    QCOMPARE(replies.last().value("order_id").toInt(), order);
+    QVERIFY(send(2, settlement));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 4, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 0);
+    QSqlQuery q(QSqlDatabase::database(store.connectionName()));
+    QVERIFY(q.exec(QStringLiteral("SELECT state,charge_count FROM piles WHERE id=%1").arg(target.id)));
+    QVERIFY(q.next()); QCOMPARE(q.value(0).toInt(), 0); QCOMPARE(q.value(1).toInt(), 1);
 }
 
 void TstSocketBiz::orderReportRejectsUnknownPileAndFaultPile()
 {
     QString error;
     StationStore store;
-    const QString dbPath = makeTestDatabasePath(QStringLiteral("socket-order-bad.db"));
-    QVERIFY2(!dbPath.isEmpty(), "无法创建测试数据库目录");
-    QVERIFY2(store.open(dbPath, &error), qPrintable(error));
-    QVERIFY2(store.seedDemoIfEmpty(&error), qPrintable(error));
-
-    // seedDemoIfEmpty 的固定分布含故障桩（约 1/10）
-    PileInfo faultPile;
-    bool foundFault = false;
-    for (const StationInfo &station : store.listStations()) {
-        const QVector<PileInfo> piles = store.listPiles(station.id);
-        for (const PileInfo &pile : piles) {
-            if (pile.state == cp::PileState::Fault) {
-                faultPile = pile;
-                foundFault = true;
-                break;
-            }
-        }
-        if (foundFault)
-            break;
-    }
-    QVERIFY2(foundFault, "演示数据应包含故障桩");
-
+    QVERIFY(store.open(makeTestDatabasePath(QStringLiteral("socket-order-reject.db")), &error));
+    QVERIFY(store.seedDemoIfEmpty(&error));
     MainWindow window(&store);
     cp::NetClient client;
-    QList<quint16> types;
-    QList<QByteArray> bodies;
+    QList<QJsonObject> replies;
     connect(&client, &cp::NetClient::packetReceived, this,
-            [&](quint16 msgType, const QByteArray &body) {
-                types.append(msgType);
-                bodies.append(body);
-            });
-
-    client.connectToServer(QStringLiteral("127.0.0.1"),
-                           static_cast<quint16>(cp::kServerPort));
+            [&](quint16, const QByteArray &body) { replies.append(jsonObjectOf(body)); });
+    client.connectToServer(QStringLiteral("127.0.0.1"), cp::kServerPort);
     QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 5000);
-
-    const auto reportType =
-        static_cast<quint16>(cp::MsgType::kOrderReport);
-    QVERIFY(client.sendPacket(
-        reportType,
-        QByteArrayLiteral("{\"order_no\":\"NO-404\",\"pile_code\":\"NOPE-99\","
-                          "\"kwh\":1.0,\"amount\":2.0}")));
-    QTRY_COMPARE_WITH_TIMEOUT(bodies.size(), 1, 5000);
-    QJsonObject response = jsonObjectOf(bodies.first());
-    QCOMPARE(response.value(QStringLiteral("code")).toInt(-1), 404);
-    QCOMPARE(response.value(QStringLiteral("received")).toBool(), false);
-
-    QVERIFY(client.sendPacket(
-        reportType,
-        QStringLiteral("{\"order_no\":\"NO-409\",\"pile_code\":\"%1\","
-                       "\"kwh\":3.0,\"amount\":6.0}")
-            .arg(faultPile.code)
-            .toUtf8()));
-    QTRY_COMPARE_WITH_TIMEOUT(bodies.size(), 2, 5000);
-    response = jsonObjectOf(bodies.at(1));
-    QCOMPARE(response.value(QStringLiteral("code")).toInt(-1), 409);
-    QCOMPARE(response.value(QStringLiteral("received")).toBool(), false);
+    QVERIFY(client.sendPacket(2, R"({"request_id":"unauth","order_id":1,"kwh":0})"));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 1, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 401);
+    QVERIFY(client.sendPacket(10, R"({"phone":"13800000002"})"));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 2, 5000);
+    QVERIFY(client.sendPacket(2, R"({"request_id":"missing","order_id":99999,"kwh":0})"));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 3, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 404);
+    QVERIFY(client.sendPacket(30, R"({"request_id":"foreign","phone":"13800000001","amount":10})"));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 4, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 403);
+    QVERIFY(client.sendPacket(498, "{}"));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.size(), 5, 5000);
+    QCOMPARE(replies.last().value("code").toInt(), 400);
 }
 
 QTEST_MAIN(TstSocketBiz)

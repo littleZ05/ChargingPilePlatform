@@ -42,6 +42,7 @@ private:
     QVBoxLayout *m_orderLayout = nullptr;
     QLabel      *m_orderEmpty  = nullptr;
 
+    QLabel *m_avatar = nullptr;
     QLabel *m_nickLabel    = nullptr;
     QLabel *m_phoneLabel   = nullptr;
     QLabel *m_balanceLabel = nullptr;

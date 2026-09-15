@@ -1,114 +1,100 @@
-#include <QtTest/QtTest>
+#include <QtTest>
 #include <QTemporaryDir>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
-
+#include "stationstore.h"
 #include "pricingservice.h"
 #include "selfhealservice.h"
 
-/** 创新点落地版服务测试（价格策略自动引擎 + 自愈检查自动服务） */
 class TestServices : public QObject
 {
     Q_OBJECT
 private slots:
-    void initTestCase();
+    void init();
+    void cleanup() { store.close(); }
     void pricingAutoDiscount();
-    void selfHealAutoRestart();
+    void freshSamplesAndRestart();
+    void activeOrderPreserved();
+    void eventFailureRollsBack();
 private:
-    QTemporaryDir m_tmp;
-    QString m_db;
-    void exec(const QString &sql);
+    QTemporaryDir temporary;
+    pcserver::StationStore store;
+    QString path;
+    void sql(const QString &s) {
+        QSqlQuery q(QSqlDatabase::database(store.connectionName()));
+        QVERIFY2(q.exec(s),qPrintable(q.lastError().text()));
+    }
+    int scalar(const QString &s) {
+        QSqlQuery q(QSqlDatabase::database(store.connectionName()));
+        if (!q.exec(s) || !q.next()) return -1;
+        return q.value(0).toInt();
+    }
+    void low() { sql("INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,10),(1,10),(1,10)"); }
 };
-
-void TestServices::initTestCase()
+void TestServices::init()
 {
-    QVERIFY(m_tmp.isValid());
-    m_db = m_tmp.filePath(QStringLiteral("svc.db"));
-    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("setup"));
-    db.setDatabaseName(m_db);
-    QVERIFY(db.open());
-    exec(QStringLiteral(
-        "CREATE TABLE stations(id INTEGER PRIMARY KEY, name TEXT, base_price REAL DEFAULT 1.0);"
-        "CREATE TABLE piles(id INTEGER PRIMARY KEY, station_id INTEGER, code TEXT,"
-        " power_kw REAL DEFAULT 60, state INTEGER DEFAULT 0);"
-        "CREATE TABLE marketing_strategy(id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " station_id INTEGER NOT NULL UNIQUE, base_price REAL, discount REAL,"
-        " rule_desc TEXT, is_active INTEGER DEFAULT 1);"
-        "CREATE TABLE pile_health_metrics(id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " pile_id INTEGER NOT NULL UNIQUE, avg_power REAL, low_threshold REAL,"
-        " high_threshold REAL, sample_count INTEGER DEFAULT 0);"
-        "CREATE TABLE pile_power_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " pile_id INTEGER NOT NULL, real_power REAL, logged_at TEXT DEFAULT '');"));
-    exec(QStringLiteral("INSERT INTO stations(id,name) VALUES(1,'A站');"));
-    exec(QStringLiteral("INSERT INTO piles(id,station_id,code,power_kw,state) "
-                        "VALUES(1,1,'P1',60,0),(2,1,'P2',60,0),(3,1,'P3',60,1);"));
-    db.close();
-    QSqlDatabase::removeDatabase(QStringLiteral("setup"));
+    path=temporary.filePath(QUuid::createUuid().toString()+".db");
+    QString error; QVERIFY2(store.open(path,&error),qPrintable(error));
+    sql("INSERT INTO stations(id,name,address,base_price) VALUES(1,'站','地址',1)");
+    sql("INSERT INTO piles(id,station_id,code,power_kw) VALUES(1,1,'P01',60)");
+    sql("INSERT INTO pile_health_metrics(pile_id,avg_power,low_threshold,sample_count) VALUES(1,50,40,12)");
 }
-
-void TestServices::exec(const QString &sql)
-{
-    QSqlQuery q(QSqlDatabase::database(QStringLiteral("setup")));
-    const QStringList stmts = sql.split(QLatin1Char(';'), Qt::SkipEmptyParts);
-    for (const QString &s : stmts)
-        QVERIFY2(q.exec(s), q.lastError().text().toUtf8());
-}
-
 void TestServices::pricingAutoDiscount()
 {
-    pcserver::PricingService svc(m_db);
-    QVERIFY(svc.start(60000));   // 定时器不触发，直接 runOnce 由测试驱动
-    // 提供预测空闲率 80% > 60%
-    svc.setIdleRateProvider([](int) { return 80.0; });
-    svc.runOnce();
-    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("chk"));
-    db.setDatabaseName(m_db);
-    QVERIFY(db.open());
-    QSqlQuery q(db);
-    QVERIFY(q.exec(QStringLiteral("SELECT discount,is_active FROM marketing_strategy WHERE station_id=1")));
-    QVERIFY(q.next());
-    QCOMPARE(q.value(0).toDouble(), 0.8);
-    QCOMPARE(q.value(1).toInt(), 1);
-    q.finish();
-    // 空闲率回落 30% -> 自动恢复
-    svc.setIdleRateProvider([](int) { return 30.0; });
-    svc.runOnce();
-    QVERIFY(q.exec(QStringLiteral("SELECT is_active FROM marketing_strategy WHERE station_id=1")));
-    QVERIFY(q.next());
-    QCOMPARE(q.value(0).toInt(), 0);
-    q.finish();
-    db.close();
-    QSqlDatabase::removeDatabase(QStringLiteral("chk"));
+    pcserver::PricingService service(path);
+    service.setIdleRateProvider([](int){return 80.0;});
+    QVERIFY(service.start(60000));
+    QCOMPARE(scalar("SELECT CAST(discount*100 AS INTEGER) FROM marketing_strategy"),80);
+    service.setIdleRateProvider([](int){return 30.0;}); service.runOnce();
+    QCOMPARE(scalar("SELECT is_active FROM marketing_strategy"),0);
 }
-
-void TestServices::selfHealAutoRestart()
+void TestServices::freshSamplesAndRestart()
 {
-    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("seed"));
-    db.setDatabaseName(m_db);
-    QVERIFY(db.open());
-    QSqlQuery q(db);
-    QVERIFY(q.exec(QStringLiteral(
-        "INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,10),(1,10),(1,10)")));
-    db.close();
-    QSqlDatabase::removeDatabase(QStringLiteral("seed"));
-
-    pcserver::SelfHealService svc(m_db);
-    QVERIFY(svc.start(60000));
-    svc.runOnce();
-    QTest::qWait(1000);   // 等待 800ms 模拟重启回调
-
-    QSqlDatabase db2 = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("chk2"));
-    db2.setDatabaseName(m_db);
-    QVERIFY(db2.open());
-    QSqlQuery q2(db2);
-    QVERIFY(q2.exec(QStringLiteral("SELECT state FROM piles WHERE id=1")));
-    QVERIFY(q2.next());
-    QCOMPARE(q2.value(0).toInt(), 0);   // 重启后恢复闲置
-    q2.finish();
-    db2.close();
-    QSqlDatabase::removeDatabase(QStringLiteral("chk2"));
+    low();
+    {
+        pcserver::SelfHealService service(path); QVERIFY(service.start(60000));
+        QCOMPARE(scalar("SELECT health_level FROM piles"),1);
+        service.runOnce(); service.runOnce();
+        QCOMPARE(scalar("SELECT health_level FROM piles"),1);
+        QCOMPARE(scalar("SELECT COUNT(*) FROM selfheal_events"),1);
+    }
+    pcserver::SelfHealService restarted(path); QVERIFY(restarted.start(60000));
+    QCOMPARE(scalar("SELECT health_level FROM piles"),1);
+    sql("INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,10)");
+    restarted.runOnce(); QCOMPARE(scalar("SELECT health_level FROM piles"),1);
+    sql("INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,10),(1,10)");
+    restarted.runOnce(); QCOMPARE(scalar("SELECT health_level FROM piles"),2);
+    QCOMPARE(scalar("SELECT state FROM piles"),2);
+    sql("INSERT INTO pile_power_logs(pile_id,real_power) VALUES(1,50)");
+    restarted.runOnce(); QCOMPARE(scalar("SELECT health_level FROM piles"),0);
+    QCOMPARE(scalar("SELECT state FROM piles"),0);
+    QCOMPARE(scalar("SELECT COUNT(*) FROM selfheal_events"),3);
 }
-
-QTEST_MAIN(TestServices)
+void TestServices::activeOrderPreserved()
+{
+    sql("INSERT INTO users(id,phone) VALUES(1,'13800138001')");
+    sql("INSERT INTO orders(user_id,pile_id,station_id,state) VALUES(1,1,1,0)");
+    sql("UPDATE piles SET state=1"); low();
+    pcserver::SelfHealService service(path); QVERIFY(service.start(60000));
+    QCOMPARE(scalar("SELECT state FROM piles"),1);
+    low(); service.runOnce();
+    QCOMPARE(scalar("SELECT health_level FROM piles"),2);
+    QCOMPARE(scalar("SELECT state FROM piles"),1);
+    QCOMPARE(scalar("SELECT state FROM orders"),0);
+}
+void TestServices::eventFailureRollsBack()
+{
+    sql("CREATE TRIGGER reject_event BEFORE INSERT ON selfheal_events BEGIN SELECT RAISE(ABORT,'test'); END");
+    low(); pcserver::SelfHealService service(path);
+    QSignalSpy spy(&service,&pcserver::SelfHealService::selfHealEvent);
+    QVERIFY(service.start(60000));
+    QCOMPARE(scalar("SELECT health_level FROM piles"),0);
+    QCOMPARE(scalar("SELECT COUNT(*) FROM selfheal_cursors"),0);
+    QCOMPARE(spy.size(),0);
+    sql("DROP TRIGGER reject_event"); service.runOnce();
+    QCOMPARE(scalar("SELECT health_level FROM piles"),1);
+    QCOMPARE(spy.size(),1);
+}
+QTEST_GUILESS_MAIN(TestServices)
 #include "tst_services.moc"

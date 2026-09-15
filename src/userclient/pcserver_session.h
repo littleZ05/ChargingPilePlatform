@@ -2,6 +2,8 @@
 #define USERCLIENT_PCSERVER_SESSION_H
 
 #include <QObject>
+#include <QJsonObject>
+#include <QHash>
 #include <QString>
 #include <QVector>
 #include <QtGlobal>
@@ -112,12 +114,17 @@ public:
     /** 发送 kLoginRequest：手机号免密登录，未注册由服务端自动注册 */
     bool login(const QString &phone);
 
+    bool command(int type, QJsonObject request = {});
+    void logout();
+    QString phone() const { return m_phone; }
+
     /** 以下计数供界面状态展示与自动化测试使用 */
     int heartbeatSentCount() const    { return m_heartbeatSentCount; }
     int pongAckCount() const          { return m_pongAckCount; }
     int reconnectAttemptCount() const { return m_reconnectAttemptCount; }
 
 signals:
+    void businessResult(int type, const QJsonObject &response);
     void connectedChanged(bool connected);
     /** 收到合法 pong ACK；serverTime 为服务器应答中的 server_time（可能为空） */
     void heartbeatPongReceived(const QString &serverTime);
@@ -149,6 +156,13 @@ private slots:
     void onReconnectTick();
 
 private:
+    bool receiveBusiness(int type, const QByteArray &body);
+    void restoreCommands();
+    QString commandKey(int type) const;
+    QHash<int, QJsonObject> m_commands;
+    QHash<int, QString> m_inflight;
+    QString m_phone;
+    bool m_authenticated = false;
     void connectNow();
     void scheduleReconnect();
     void sendHeartbeat();

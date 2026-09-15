@@ -10,6 +10,11 @@
 #include <QScrollArea>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QJsonArray>
+#include <QFileDialog>
+#include <QBuffer>
+#include <QImageReader>
+#include "common.h"
 
 ProfilePage::ProfilePage(QWidget *parent)
     : QWidget(parent)
@@ -42,6 +47,7 @@ ProfilePage::ProfilePage(QWidget *parent)
 
     auto *row = new QHBoxLayout;
     auto *avatar = new QLabel(QStringLiteral("用"), infoCard);
+    m_avatar = avatar;
     avatar->setAlignment(Qt::AlignCenter);
     avatar->setFixedSize(56, 56);
     avatar->setStyleSheet(QStringLiteral(
@@ -53,7 +59,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     m_nickLabel->setStyleSheet(QStringLiteral("color:#ffffff; font-size:16px; font-weight:bold;"));
     m_phoneLabel = new QLabel(m_phone, infoCard);
     m_phoneLabel->setObjectName(QStringLiteral("hintText"));
-    auto *regLabel = new QLabel(QStringLiteral("注册时间：2025-08-26 10:24"), infoCard);
+    auto *regLabel = new QLabel(QStringLiteral("手机号免密登录"), infoCard);
     regLabel->setObjectName(QStringLiteral("hintText"));
     infoV->addWidget(m_nickLabel);
     infoV->addWidget(m_phoneLabel);
@@ -69,6 +75,28 @@ ProfilePage::ProfilePage(QWidget *parent)
     row->addLayout(infoV, 1);
     row->addWidget(saveBtn, 0, Qt::AlignTop);
     iv->addLayout(row);
+    auto *upload = new QPushButton(QStringLiteral("更换头像"), infoCard);
+    iv->addWidget(upload);
+    connect(upload, &QPushButton::clicked, this, [this] {
+        const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("选择头像"), {},
+                                                         QStringLiteral("图片 (*.png *.jpg *.jpeg)"));
+        if (path.isEmpty())
+            return;
+        QImageReader reader(path);
+        const QSize size = reader.size();
+        if (!size.isValid() || size.width() > 2048 || size.height() > 2048) {
+            QMessageBox::warning(this, QStringLiteral("头像无效"), QStringLiteral("请选择尺寸不超过2048的图片"));
+            return;
+        }
+        const QImage image = reader.read();
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        if (image.isNull() || !image.scaled(256,256,Qt::KeepAspectRatio).save(&buffer,"PNG")
+            || !m_session || !m_session->command(cp::MsgType::kProfileUpdate,
+                {{"avatar", QString::fromLatin1(png.toBase64())}}))
+            QMessageBox::warning(this, QStringLiteral("无法更新"), QStringLiteral("请检查图片并等待服务器连接/确认"));
+    });
 
     auto *balRow = new QHBoxLayout;
     m_balanceLabel = new QLabel(QStringLiteral("余额 ¥%1").arg(QString::number(m_balance, 'f', 2)), infoCard);
@@ -169,6 +197,34 @@ void ProfilePage::setServerSession(userclient::PcServerSession *session)
     if (m_session) {
         connect(m_session, &userclient::PcServerSession::rechargeResult,
                 this, &ProfilePage::onRechargeResult);
+        connect(m_session, &userclient::PcServerSession::businessResult, this,
+                [this](int type, const QJsonObject &r) {
+            if (type != cp::MsgType::kProfileQuery && type != cp::MsgType::kProfileUpdate)
+                return;
+            if (r.value("code").toInt(-1) != 0) {
+                QMessageBox::warning(this, QStringLiteral("资料未更新"), r.value("message").toString());
+                return;
+            }
+            setUserInfo(r.value("nickname").toString(), r.value("balance").toDouble());
+            QPixmap image;
+            image.loadFromData(QByteArray::fromBase64(r.value("avatar").toString().toLatin1()));
+            if (!image.isNull())
+                m_avatar->setPixmap(image.scaled(56,56,Qt::KeepAspectRatio,Qt::SmoothTransformation));
+            else
+                m_avatar->setText(QStringLiteral("用"));
+            while (auto *item = m_orderLayout->takeAt(0)) {
+                delete item->widget();
+                delete item;
+            }
+            m_orderEmpty = nullptr;
+            const QJsonArray orders = r.value("orders").toArray();
+            for (auto it=orders.constEnd(); it!=orders.constBegin();) {
+                const auto o = (*--it).toObject();
+                addOrder({QString::number(o.value("order_id").toInt()), o.value("pile_code").toString(),
+                          o.value("start_time").toString(), o.value("kwh").toDouble(),
+                          o.value("amount").toDouble(), cp::orderStateText(static_cast<cp::OrderState>(o.value("state").toInt()))});
+            }
+        });
     }
 }
 
@@ -204,10 +260,8 @@ void ProfilePage::editProfile()
                                                   QStringLiteral("昵称："), QLineEdit::Normal,
                                                   m_nickname, &ok);
     if (ok && !newNick.trimmed().isEmpty()) {
-        m_nickname = newNick.trimmed();
-        m_nickLabel->setText(m_nickname);
-        QMessageBox::information(this, QStringLiteral("已保存"),
-                                 QStringLiteral("昵称已更新为：%1（当前为本地演示）").arg(m_nickname));
+        if (!m_session || !m_session->command(cp::MsgType::kProfileUpdate, {{"nickname", newNick.trimmed()}}))
+            QMessageBox::warning(this, QStringLiteral("未保存"), QStringLiteral("请连接服务器并等待上一操作确认"));
     }
 }
 

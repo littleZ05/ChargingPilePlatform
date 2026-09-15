@@ -36,6 +36,7 @@ SelfHealService::~SelfHealService()
 {
     stop();
     if (m_db.isOpen()) m_db.close();
+    m_db = QSqlDatabase();
     QSqlDatabase::removeDatabase(m_conn);
 }
 
@@ -47,6 +48,7 @@ bool SelfHealService::start(int intervalMs, QString *err)
     }
     QSqlQuery busy(m_db);
     busy.exec(QStringLiteral("PRAGMA busy_timeout=3000"));
+    busy.exec(QStringLiteral("PRAGMA foreign_keys=ON"));
     connect(&m_timer, &QTimer::timeout, this, &SelfHealService::runOnce);
     m_timer.start(intervalMs);
     activeSelfHealService() = this;
@@ -58,6 +60,7 @@ bool SelfHealService::start(int intervalMs, QString *err)
 void SelfHealService::stop()
 {
     if (m_timer.isActive()) m_timer.stop();
+    if (activeSelfHealService() == this) activeSelfHealService() = nullptr;
 }
 
 double SelfHealService::thresholdOf(int pileId)
@@ -79,115 +82,107 @@ double SelfHealService::thresholdOf(int pileId)
     return 0.0;
 }
 
-int SelfHealService::healthLevelOf(int pileId)
-{
-    QSqlQuery q(m_db);
-    q.prepare(QStringLiteral("SELECT COALESCE(health_level, 0) FROM piles WHERE id=?"));
-    q.addBindValue(pileId);
-    if (q.exec() && q.next())
-        return q.value(0).toInt();
-    return 0;
-}
-
-void SelfHealService::recordEvent(int pileId, int stationId, const QString &pileCode,
-                                  int level, double threshold, double realPower,
-                                  const QString &action)
-{
-    QSqlQuery q(m_db);
-    q.prepare(QStringLiteral(
-        "INSERT INTO selfheal_events(pile_id,pile_code,station_id,level,level_text,"
-        "threshold,real_power,action) VALUES(?,?,?,?,?,?,?,?)"));
-    q.addBindValue(pileId);
-    q.addBindValue(pileCode);
-    q.addBindValue(stationId);
-    q.addBindValue(level);
-    q.addBindValue(healLevelText(level));
-    q.addBindValue(threshold);
-    q.addBindValue(realPower);
-    q.addBindValue(action);
-    q.exec();
-    emit selfHealEvent(pileCode, level, action);
-}
-
 void SelfHealService::processPile(int pileId)
 {
     const double low = thresholdOf(pileId);
     if (low <= 0)
         return;
-
+    // Cursor, state and event commit together; no event is emitted for a rollback.
+    QSqlQuery begin(m_db);
+    if (!begin.exec(QStringLiteral("BEGIN IMMEDIATE")))
+        return;
+    const auto rollback = [this] { m_db.rollback(); };
     QSqlQuery head(m_db);
     head.prepare(QStringLiteral(
-        "SELECT p.code, p.station_id, COALESCE(p.health_level, 0) "
-        "FROM piles p WHERE p.id=?"));
+        "SELECT p.code,p.station_id,p.health_level,p.state,"
+        "COALESCE(c.last_sample_id,0),COALESCE(c.warning_sample_id,0) "
+        "FROM piles p LEFT JOIN selfheal_cursors c ON c.pile_id=p.id WHERE p.id=?"));
     head.addBindValue(pileId);
-    if (!head.exec() || !head.next())
-        return;
-    const QString pileCode = head.value(0).toString();
-    const int stationId = head.value(1).toInt();
-    int level = head.value(2).toInt();
-
-    // 取最近 kConsecutiveCount 条“设备上报”的功率样本（真实数据）
-    QSqlQuery q(m_db);
-    q.prepare(QStringLiteral(
-        "SELECT real_power FROM pile_power_logs WHERE pile_id=? ORDER BY id DESC LIMIT ?"));
-    q.addBindValue(pileId);
-    q.addBindValue(cp::SelfHeal::kConsecutiveCount);
-    if (!q.exec())
-        return;
-    QVector<double> powers;
-    while (q.next())
-        powers.append(q.value(0).toDouble());
-    if (powers.size() < cp::SelfHeal::kConsecutiveCount)
-        return;
-
-    const double latest = powers.first();
-    bool allLow = true;
-    for (double p : powers)
-        allLow = allLow && (p < low);
-
-    if (!allLow) {
-        // 样本恢复正常：解除预警/故障
-        if (latest >= low && level != 0) {
-            QSqlQuery up(m_db);
-            up.prepare(QStringLiteral("UPDATE piles SET health_level=0 WHERE id=?"));
-            up.addBindValue(pileId);
-            up.exec();
-            recordEvent(pileId, stationId, pileCode, 0, low, latest,
-                        QStringLiteral("实测功率 %1 kW 已回到阈值以上，预警解除")
-                            .arg(latest, 0, 'f', 1));
-            ++m_lastRecovered;
-        }
-        return;
+    if (!head.exec() || !head.next()) { rollback(); return; }
+    const QString code = head.value(0).toString();
+    const int station = head.value(1).toInt();
+    const int level = head.value(2).toInt();
+    const int oldState = head.value(3).toInt();
+    const qint64 last = head.value(4).toLongLong();
+    qint64 warningSample = head.value(5).toLongLong();
+    head.finish();
+    QSqlQuery samples(m_db);
+    samples.prepare(QStringLiteral(
+        "SELECT id,real_power FROM pile_power_logs WHERE pile_id=? ORDER BY id DESC LIMIT ?"));
+    samples.addBindValue(pileId);
+    samples.addBindValue(cp::SelfHeal::kConsecutiveCount);
+    if (!samples.exec()) { rollback(); return; }
+    QVector<QPair<qint64,double>> powers;
+    while (samples.next())
+        powers.append({samples.value(0).toLongLong(),samples.value(1).toDouble()});
+    samples.finish();
+    if (powers.isEmpty() || powers.first().first <= last) { rollback(); return; }
+    const qint64 newest = powers.first().first;
+    const double latest = powers.first().second;
+    bool allLow = powers.size() == cp::SelfHeal::kConsecutiveCount;
+    bool afterRestart = allLow;
+    for (const auto &sample : powers) {
+        allLow = allLow && sample.second < low;
+        afterRestart = afterRestart && sample.first > warningSample;
     }
-
-    // 连续低功率命中
-    if (level == 0) {
-        // 第一次命中：标记“需检查”并执行一次远程重启（真实复位该桩运行状态）
-        QSqlQuery up(m_db);
-        up.prepare(QStringLiteral(
-            "UPDATE piles SET health_level=1, state=? WHERE id=?"));
-        up.addBindValue(static_cast<int>(cp::PileState::Idle));
-        up.addBindValue(pileId);
-        up.exec();
-        recordEvent(pileId, stationId, pileCode, 1, low, latest,
-                    QStringLiteral("连续 %1 次低于阈值 %2 kW → 标记需检查，已自动下发远程重启指令")
-                        .arg(cp::SelfHeal::kConsecutiveCount)
-                        .arg(low, 0, 'f', 1));
-        ++m_lastWarning;
-        emit message(QStringLiteral("[自愈检查] 电桩 %1：连续 %2 次低于阈值(%3 kW)，已标记需检查并自动远程重启")
-                         .arg(pileCode)
-                         .arg(cp::SelfHeal::kConsecutiveCount)
-                         .arg(low, 0, 'f', 1));
-    } else if (level == 1) {
-        // 重启后仍持续低功率 → 升级故障，需人工介入
-        QSqlQuery up(m_db);
-        up.prepare(QStringLiteral("UPDATE piles SET health_level=2 WHERE id=?"));
-        up.addBindValue(pileId);
-        up.exec();
-        recordEvent(pileId, stationId, pileCode, 2, low, latest,
-                    QStringLiteral("远程重启后功率仍未恢复，升级为故障，需人工介入"));
-        ++m_lastFault;
-        emit message(QStringLiteral("[自愈检查] 电桩 %1：重启后仍未恢复，升级为故障").arg(pileCode));
+    int nextLevel = level;
+    QString action;
+    if (latest >= low && level != 0) {
+        nextLevel = 0;
+        warningSample = 0;
+        action = QStringLiteral("收到新的正常功率样本，解除自愈预警/故障");
+    } else if (allLow && level == 0) {
+        nextLevel = 1;
+        warningSample = newest;
+        action = QStringLiteral("连续3次功率低于阈值，标记需检查；执行模拟重启，保留活动订单占用");
+    } else if (allLow && afterRestart && level == 1) {
+        nextLevel = 2;
+        action = QStringLiteral("模拟重启后又收到3条异常样本，升级为故障");
+    }
+    QSqlQuery cursor(m_db);
+    cursor.prepare(QStringLiteral(
+        "INSERT INTO selfheal_cursors(pile_id,last_sample_id,warning_sample_id) VALUES(?,?,?) "
+        "ON CONFLICT(pile_id) DO UPDATE SET last_sample_id=excluded.last_sample_id,"
+        "warning_sample_id=excluded.warning_sample_id"));
+    cursor.addBindValue(pileId); cursor.addBindValue(newest); cursor.addBindValue(warningSample);
+    if (!cursor.exec()) { rollback(); return; }
+    if (nextLevel != level) {
+        QSqlQuery active(m_db);
+        active.prepare(QStringLiteral("SELECT COUNT(*) FROM orders WHERE pile_id=? AND state=0"));
+        active.addBindValue(pileId);
+        if (!active.exec() || !active.next()) { rollback(); return; }
+        const bool occupied = active.value(0).toInt() > 0;
+        active.finish();
+        // A business order owns occupation; health failure only forbids new orders.
+        const int state = occupied ? 1 : nextLevel == 2 ? 2
+                          : (level == 2 ? 0 : oldState);
+        QSqlQuery update(m_db);
+        update.prepare(QStringLiteral("UPDATE piles SET health_level=?,state=? WHERE id=?"));
+        update.addBindValue(nextLevel); update.addBindValue(state); update.addBindValue(pileId);
+        if (!update.exec()) { rollback(); return; }
+        QSqlQuery event(m_db);
+        event.prepare(QStringLiteral(
+            "INSERT INTO selfheal_events(pile_id,pile_code,station_id,level,level_text,"
+            "threshold,real_power,action) VALUES(?,?,?,?,?,?,?,?)"));
+        event.addBindValue(pileId); event.addBindValue(code); event.addBindValue(station);
+        event.addBindValue(nextLevel); event.addBindValue(healLevelText(nextLevel));
+        event.addBindValue(low); event.addBindValue(latest); event.addBindValue(action);
+        if (!event.exec()) { rollback(); return; }
+        QSqlQuery rate(m_db);
+        rate.prepare(QStringLiteral(
+            "UPDATE stations SET online_rate=COALESCE((SELECT "
+            "100.0*SUM(CASE WHEN state<>2 AND health_level<>2 THEN 1 ELSE 0 END)/COUNT(*) "
+            "FROM piles WHERE station_id=?),0) WHERE id=?"));
+        rate.addBindValue(station); rate.addBindValue(station);
+        if (!rate.exec()) { rollback(); return; }
+    }
+    if (!m_db.commit()) { rollback(); return; }
+    if (nextLevel != level) {
+        if (nextLevel == 0) ++m_lastRecovered;
+        if (nextLevel == 1) ++m_lastWarning;
+        if (nextLevel == 2) ++m_lastFault;
+        emit selfHealEvent(code, nextLevel, action);
+        emit message(QStringLiteral("[自愈检查] %1：%2").arg(code, action));
     }
 }
 

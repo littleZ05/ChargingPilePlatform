@@ -2,6 +2,7 @@
 #define USERCLIENT_STATIONDETAILPAGE_H
 
 #include <QWidget>
+#include <QJsonObject>
 #include "station.h"
 #include "pcserver_session.h"
 
@@ -24,6 +25,9 @@ class StationDetailPage : public QWidget
 public:
     explicit StationDetailPage(QWidget *parent = nullptr);
     void setStation(const Station &station);
+    bool restoreOrder(const QJsonObject &order);
+    void clearOrder();
+    bool hasActiveOrder() const { return m_orderId > 0; }
     /** 注入应用级 PcServer 会话，用于「结束充电」时上报结算订单（NO.7 触发点） */
     void setServerSession(userclient::PcServerSession *session);
     /** 当前登录手机号：发起充电建单（kStartCharge）必需 */
@@ -54,6 +58,9 @@ private:
     void     rebuildPiles();
     QWidget *makePileCard(const Pile &pile);
 
+    enum class Phase { Idle, Starting, Charging, Settling, SettlementFailed, Completed };
+    Phase m_phase = Phase::Idle;
+    int m_orderId = 0;
     Station m_station;
     bool    m_hasStation = false;
     bool    m_charging   = false;
