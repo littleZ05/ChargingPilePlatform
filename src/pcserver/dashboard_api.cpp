@@ -314,7 +314,7 @@ void DashboardApiServer::serveRequest(QTcpSocket *client,
     } else if (path == "/api/dashboard/overview") {
         QString error;
         DashboardSnapshot snap;
-        if (m_store && m_store->dashboardSnapshot(&snap, 6, &error)) {
+        if (m_store && m_store->dashboardSnapshot(&snap, 24, &error)) {
             body = okEnvelope(snapshotToData(snap));
         } else {
             statusCode = 500;

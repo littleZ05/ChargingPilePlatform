@@ -118,7 +118,7 @@ public:
      * - ratedCapacityKw：电站额定可用容量 = Σ(piles.power_kw)，预测钳制上界；
      * - currentLoadKw：当前实时负荷 = Σ(充电中电桩 power_kw)；
      * - hourlyLoadSamples：返回最近 hours 个整点小时负荷（旧→新，单位 kW）。
-     *   数据策略：先真实聚合 pile_power_logs（电站维度按小时求和）；
+     *   数据策略：先真实聚合 pile_power_logs（分桩小时均值后按站求和）；
      *   有效样本不足（< max(3, hours/3)）时回退到确定性仿真采样曲线，
      *   并置 usedDemoFallback=true（UI 上如实标注“演示采样”）。
      */
@@ -141,7 +141,7 @@ public:
      * NO.16 Web 大屏全量快照：
      * - 桩状态总量 / 在线率 / 实时总负荷（piles 实时库）；
      * - 今日与近 7 日已完成订单营收/订单数/电量；
-     * - 近 24h 平台负荷 + 复用 cp::forecastLoad 产出未来 1~6h 预测。
+     * - 近 24h 平台负荷 + 复用 cp::forecastLoad 产出未来 1~24h 预测。
      * 全部为只读参数化查询，供 DashboardApiServer / 测试调用。
      */
     bool dashboardSnapshot(DashboardSnapshot *out,

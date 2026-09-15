@@ -309,7 +309,7 @@ void TstDashboardApi::dashboardApiServesOverviewWithCors()
     QCOMPARE(data.value(QStringLiteral("revenue7d")).toArray().size(), 7);
     QCOMPARE(data.value(QStringLiteral("order7d")).toArray().size(), 7);
     const QJsonObject forecast = data.value(QStringLiteral("forecast")).toObject();
-    QCOMPARE(forecast.value(QStringLiteral("kw")).toArray().size(), 6);
+    QCOMPARE(forecast.value(QStringLiteral("kw")).toArray().size(), 24);
     QCOMPARE(data.value(QStringLiteral("days")).toArray().size(), 7);
     server.stop();
     QVERIFY(!server.isListening());

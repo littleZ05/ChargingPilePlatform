@@ -73,6 +73,7 @@ private:
     void selectStationById(int stationId);
     void onAddStationClicked();
 
+    quint64 m_forecastGeneration = 0;
     QHash<QTcpSocket *, QString> m_sessionPhones;
 
     struct Private;

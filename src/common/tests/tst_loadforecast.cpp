@@ -17,6 +17,8 @@ private slots:
     void capacityClampsForecast();
     void horizonIsClampedToSupportedRange();
     void windowSizeVariantsStayReasonable();
+    void longHistoryUsesRecentDay();
+    void syntheticHoldoutComparedWithPersistence();
 };
 
 namespace {
@@ -162,7 +164,7 @@ void TestLoadForecast::horizonIsClampedToSupportedRange()
     cp::LoadForecastInput tooLarge;
     tooLarge.historyKw = history;
     tooLarge.horizonHours = 99;
-    QCOMPARE(cp::forecastLoad(tooLarge).forecastKw.size(), 6);
+    QCOMPARE(cp::forecastLoad(tooLarge).forecastKw.size(), 24);
 
     cp::LoadForecastInput tooSmall;
     tooSmall.historyKw = history;
@@ -196,6 +198,46 @@ void TestLoadForecast::windowSizeVariantsStayReasonable()
     }
     QCOMPARE(r12.trend, cp::LoadTrend::Rising);
     QCOMPARE(r24.trend, cp::LoadTrend::Rising);
+}
+
+void TestLoadForecast::longHistoryUsesRecentDay()
+{
+    cp::LoadForecastInput input;
+    input.historyKw = QVector<double>(24, 999.0);
+    input.historyKw += ramp(24, 10, 1);
+    input.horizonHours = 24;
+    const auto result = cp::forecastLoad(input);
+    QVERIFY(result.ok);
+    QCOMPARE(result.forecastKw.size(), 24);
+    QVERIFY(near(result.forecastKw.first(), 34.0));
+    QVERIFY(near(result.forecastKw.last(), 57.0));
+}
+
+void TestLoadForecast::syntheticHoldoutComparedWithPersistence()
+{
+    // Synthetic temporal holdout: no future values enter fitting.
+    // This demonstrates an evaluation procedure, not accuracy on real station data.
+    cp::LoadForecastInput input;
+    input.historyKw = ramp(24, 10.0, 1.0);
+    input.horizonHours = 24;
+    double errors[2] = {0,0};
+    int index = 0;
+    for (auto model : {cp::ForecastModel::OLS, cp::ForecastModel::WMA}) {
+        input.model = model;
+        const auto prediction = cp::forecastLoad(input);
+        QVERIFY(prediction.ok);
+        for (int hour=0; hour<24; ++hour)
+            errors[index] += qAbs(prediction.forecastKw[hour] - (34.0 + hour))/24.0;
+        ++index;
+    }
+    double baseline = 0;
+    for (int hour=0; hour<24; ++hour)
+        baseline += qAbs(input.historyKw.last() - (34.0 + hour))/24.0;
+    qInfo() << "Synthetic linear holdout MAE kW: OLS" << errors[0]
+            << "WMA" << errors[1] << "last-value baseline" << baseline;
+    QVERIFY(errors[0] < 1e-8);
+    QVERIFY(errors[1] >= baseline);
+    QVERIFY(near(baseline,12.5));
 }
 
 QTEST_APPLESS_MAIN(TestLoadForecast)

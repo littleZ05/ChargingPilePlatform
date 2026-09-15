@@ -546,14 +546,15 @@ QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
     const QDateTime windowStart = anchorHour.addSecs(-(hours - 1) * 3600);
     const QDateTime windowEnd = anchorHour.addSecs(3600);
 
-    // 1) 真实聚合优先：电站维度最近 hours 小时整点桶内的桩功率日志求和
+    // 1) 真实聚合优先：各桩小时内平均功率，再按站求和（采样次数不充当功率权重）
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "SELECT l.logged_at, l.real_power "
+        "SELECT strftime('%Y-%m-%d %H:00:00',l.logged_at), AVG(l.real_power) "
         "FROM pile_power_logs l "
         "JOIN piles p ON p.id = l.pile_id "
-        "WHERE p.station_id = ? AND l.real_power > 0 "
-        "  AND l.logged_at >= ? AND l.logged_at < ?"));
+        "WHERE p.station_id = ? AND l.real_power >= 0 "
+        "  AND l.logged_at >= ? AND l.logged_at < ? "
+        "GROUP BY p.id,strftime('%Y-%m-%d %H:00:00',l.logged_at)"));
     q.addBindValue(stationId);
     q.addBindValue(windowStart.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
     q.addBindValue(windowEnd.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
@@ -575,19 +576,19 @@ QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
     const double capacityKw = ratedCapacityKw(stationId, error);
     const double currentKw = currentLoadKw(stationId, error);
     result.reserve(hours);
-    int nonZeroSamples = 0;
+    int observedSamples = 0;
     for (int k = 0; k < hours; ++k) {
         const QDateTime bucketStart = windowStart.addSecs(k * 3600);
         double kw = loadByHour.value(bucketStart.toMSecsSinceEpoch(), 0.0);
         if (k == hours - 1 && currentKw > 0.0)
             kw = currentKw;  // 最近小时与实际充电状态对齐（实时负荷优先）
-        if (kw > 0.0)
-            ++nonZeroSamples;
+        if (loadByHour.contains(bucketStart.toMSecsSinceEpoch()))
+            ++observedSamples;
         result.push_back(roundLoad(kw));
     }
 
     const int needReal = std::max(3, hours / 3);
-    if (nonZeroSamples >= needReal) {
+    if (observedSamples >= needReal) {
         if (usedDemoFallback) *usedDemoFallback = false;
         return result;
     }
@@ -612,14 +613,15 @@ QVector<double> StationStore::platformHourlyLoadSamples(int hours,
     const QDateTime windowStart = anchorHour.addSecs(-(hours - 1) * 3600);
     const QDateTime windowEnd = anchorHour.addSecs(3600);
 
-    // 1) 真实聚合优先：近 hours 小时整点桶内的全平台桩功率日志求和
+    // 1) 真实聚合优先：各桩小时内平均功率，再按平台求和
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "SELECT l.logged_at, l.real_power "
+        "SELECT strftime('%Y-%m-%d %H:00:00',l.logged_at), AVG(l.real_power) "
         "FROM pile_power_logs l "
         "JOIN piles p ON p.id = l.pile_id "
-        "WHERE l.real_power > 0 "
-        "  AND l.logged_at >= ? AND l.logged_at < ?"));
+        "WHERE l.real_power >= 0 "
+        "  AND l.logged_at >= ? AND l.logged_at < ? "
+        "GROUP BY p.id,strftime('%Y-%m-%d %H:00:00',l.logged_at)"));
     q.addBindValue(windowStart.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
     q.addBindValue(windowEnd.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
     if (!q.exec()) {
@@ -651,19 +653,19 @@ QVector<double> StationStore::platformHourlyLoadSamples(int hours,
     }
 
     result.reserve(hours);
-    int nonZeroSamples = 0;
+    int observedSamples = 0;
     for (int k = 0; k < hours; ++k) {
         const QDateTime bucketStart = windowStart.addSecs(k * 3600);
         double kw = loadByHour.value(bucketStart.toMSecsSinceEpoch(), 0.0);
         if (k == hours - 1 && currentKw > 0.0)
             kw = currentKw;  // 最近小时与实时充电状态对齐
-        if (kw > 0.0)
-            ++nonZeroSamples;
+        if (loadByHour.contains(bucketStart.toMSecsSinceEpoch()))
+            ++observedSamples;
         result.push_back(roundLoad(kw));
     }
 
     const int needReal = std::max(3, hours / 3);
-    if (nonZeroSamples >= needReal) {
+    if (observedSamples >= needReal) {
         if (usedDemoFallback) *usedDemoFallback = false;
         return result;
     }
