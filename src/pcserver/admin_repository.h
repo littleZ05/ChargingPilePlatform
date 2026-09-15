@@ -5,6 +5,8 @@
 #include <QHash>
 #include <QVariant>
 #include <QSqlDatabase>
+#include <functional>
+namespace pcserver { class StationStore; }
 namespace pcserver_admin {
 struct StationRow {
     int id = 0;
@@ -81,6 +83,8 @@ public:
     }
 
     bool initialize(QString *error = nullptr);
+    bool attach(pcserver::StationStore &store, QString *error = nullptr);
+    void detach(const QString &connectionName);
 
     bool verifyAdmin(const QString &username, const QString &password, QString *error = nullptr) const;
 
@@ -112,12 +116,13 @@ public:
 
 private:
     DatabaseManager() = default;
+    bool mutate(const std::function<bool()> &operation, QString *error);
+    bool canModifyPile(int pileId, bool deleting, QString *error);
 
     QString dbPath() const;
 
     bool openDatabase(QString *error);
 
-    bool runStatements(const QStringList &statements, QString *error) const;
 
     bool ensureSchema(QString *error);
 
@@ -129,7 +134,6 @@ private:
 
     QVector<PileInfo> currentPileInfos(QString *error = nullptr) const;
 
-    QHash<int, double> stationBasePriceMap(QString *error = nullptr) const;
 
     bool recalculateStationStats(int stationId, QString *error = nullptr);
 

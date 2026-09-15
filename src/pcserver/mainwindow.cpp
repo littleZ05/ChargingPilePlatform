@@ -118,6 +118,11 @@ MainWindow::MainWindow(pcserver::StationStore *store, const QString &adminName, 
     pcserver::applyUiTheme(qApp);
 
     d->store = store;
+    if(store) {
+        QString error;
+        if(!DatabaseManager::instance().attach(*store,&error))
+            qWarning() << "[admin repository]" << error;
+    }
     d->adminName = adminName;
     d->ui = new Ui::MainWindow;
     d->ui->setupUi(this);
@@ -151,6 +156,8 @@ MainWindow::~MainWindow()
         delete d->dashboardServer;
         d->dashboardServer = nullptr;
     }
+    if(d->store)
+        DatabaseManager::instance().detach(d->store->connectionName());
     delete d->ui;
     delete d;
 }

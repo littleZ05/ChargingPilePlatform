@@ -1,0 +1,11 @@
+QT += core sql testlib
+CONFIG += console c++17 testcase
+TARGET = admin_repository_tests
+TEMPLATE = app
+INCLUDEPATH += $$PWD/.. $$PWD/../../common
+SOURCES += $$PWD/tst_admin_repository.cpp $$PWD/../admin_repository.cpp $$PWD/../admin_demo_seed.cpp $$PWD/../stationstore.cpp $$PWD/../stationstore_orders.cpp $$PWD/../../common/loadforecast.cpp
+HEADERS += $$PWD/../admin_repository.h $$PWD/../stationstore.h
+RESOURCES += $$PWD/../pcserver.qrc
+schema_resource.target = qrc_pcserver.cpp
+schema_resource.depends = $$PWD/../../database/schema.sql
+QMAKE_EXTRA_TARGETS += schema_resource

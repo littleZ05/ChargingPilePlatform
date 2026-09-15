@@ -19,6 +19,63 @@ QString escapeLikePattern(const QString &input)
     value.replace("\\","\\\\").replace("%","\\%").replace("_","\\_");
     return value;
 }
+bool DatabaseManager::attach(pcserver::StationStore &store, QString *error)
+{
+    if (!store.isOpen()) {
+        if(error) *error=QStringLiteral("数据上下文未打开");
+        return false;
+    }
+    m_db=QSqlDatabase::database(store.connectionName());
+    QSqlQuery admin(m_db);
+    admin.prepare(QStringLiteral("INSERT OR IGNORE INTO admins(username,password) VALUES(?,?)"));
+    admin.addBindValue(QStringLiteral("admin"));
+    admin.addBindValue(QStringLiteral("123456"));
+    if(!admin.exec()) {
+        if(error) *error=admin.lastError().text();
+        return false;
+    }
+    m_initialized=true;
+    return true;
+}
+void DatabaseManager::detach(const QString &connectionName)
+{
+    if(m_db.connectionName()==connectionName) {
+        m_db=QSqlDatabase();
+        m_initialized=false;
+    }
+}
+bool DatabaseManager::mutate(const std::function<bool()> &operation, QString *error)
+{
+    QSqlQuery begin(m_db);
+    if(!begin.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        if(error) *error=begin.lastError().text();
+        return false;
+    }
+    if(!operation()) { m_db.rollback(); return false; }
+    if(!m_db.commit()) {
+        if(error) *error=m_db.lastError().text();
+        m_db.rollback(); return false;
+    }
+    return true;
+}
+bool DatabaseManager::canModifyPile(int pileId, bool deleting, QString *error)
+{
+    QSqlQuery orders(m_db);
+    orders.prepare(deleting ? QStringLiteral("SELECT COUNT(*) FROM orders WHERE pile_id=?")
+                            : QStringLiteral("SELECT COUNT(*) FROM orders WHERE pile_id=? AND state=0"));
+    orders.addBindValue(pileId);
+    if(!orders.exec() || !orders.next()) {
+        if(error) *error=QStringLiteral("订单状态查询失败");
+        return false;
+    }
+    if(orders.value(0).toInt()>0) {
+        if(error) *error=deleting ? QStringLiteral("电桩有历史订单，禁止删除以保留账务记录")
+                                 : QStringLiteral("电桩有活动订单，请先结算再维护");
+        return false;
+    }
+    return true;
+}
+
 bool DatabaseManager::initialize(QString *error)
 {
     if (m_initialized && m_db.isOpen()) {
@@ -270,6 +327,12 @@ bool DatabaseManager::setUserStatus(int userId, int status, QString *error)
 
 bool DatabaseManager::addPile(int stationId, const QString &code, const QString &type, double powerKw, int state, int *newId, QString *error)
 {
+    return mutate([&]() -> bool {
+    if(state==1) {
+        if(error) *error=QStringLiteral("充电状态由订单建立，不能手动设置");
+        return false;
+    }
+
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral(
         "INSERT INTO piles(station_id, code, type, power_kw, state, charge_count, charge_seconds) "
@@ -290,10 +353,29 @@ bool DatabaseManager::addPile(int stationId, const QString &code, const QString 
         *newId = id;
     }
     return recalculateStationStats(stationId, error);
+
+    },error);
 }
 
 bool DatabaseManager::updatePile(int pileId, int stationId, const QString &code, const QString &type, double powerKw, int state, QString *error)
 {
+    return mutate([&]() -> bool {
+
+    if(!canModifyPile(pileId,false,error)) return false;
+    if(state==1) {
+        if(error) *error=QStringLiteral("充电状态由订单建立，不能手动设置");
+        return false;
+    }
+    QSqlQuery health(m_db);
+    health.prepare(QStringLiteral("SELECT health_level FROM piles WHERE id=?"));
+    health.addBindValue(pileId);
+    if(!health.exec() || !health.next()) { if(error) *error=QStringLiteral("电桩不存在"); return false; }
+    if(state==0 && health.value(0).toInt()!=0) {
+        if(error) *error=QStringLiteral("请先排查并恢复健康状态，不能直接将异常桩设为空闲");
+        return false;
+    }
+    health.finish();
+
     int oldStationId = -1;
     QSqlQuery lookup(m_db);
     lookup.prepare(QStringLiteral("SELECT station_id FROM piles WHERE id = ?"));
@@ -305,6 +387,7 @@ bool DatabaseManager::updatePile(int pileId, int stationId, const QString &code,
         return false;
     }
     oldStationId = lookup.value(0).toInt();
+    if(oldStationId!=stationId && !canModifyPile(pileId,true,error)) return false;
 
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral(
@@ -326,10 +409,16 @@ bool DatabaseManager::updatePile(int pileId, int stationId, const QString &code,
         return recalculateStationStats(stationId, error);
     }
     return recalculateStationStats(oldStationId, error) && recalculateStationStats(stationId, error);
+
+    },error);
 }
 
 bool DatabaseManager::deletePile(int pileId, QString *error)
 {
+    return mutate([&]() -> bool {
+
+    if(!canModifyPile(pileId,true,error)) return false;
+
     int stationId = -1;
     QSqlQuery lookup(m_db);
     lookup.prepare(QStringLiteral("SELECT station_id FROM piles WHERE id = ?"));
@@ -345,7 +434,8 @@ bool DatabaseManager::deletePile(int pileId, QString *error)
     const QStringList statements = {
         QStringLiteral("DELETE FROM pile_power_logs WHERE pile_id = %1").arg(pileId),
         QStringLiteral("DELETE FROM pile_health_metrics WHERE pile_id = %1").arg(pileId),
-        QStringLiteral("DELETE FROM orders WHERE pile_id = %1").arg(pileId),
+        QStringLiteral("DELETE FROM selfheal_events WHERE pile_id = %1").arg(pileId),
+        QStringLiteral("DELETE FROM selfheal_cursors WHERE pile_id = %1").arg(pileId),
         QStringLiteral("DELETE FROM piles WHERE id = %1").arg(pileId)
     };
     for (const QString &sql : statements) {
@@ -359,10 +449,29 @@ bool DatabaseManager::deletePile(int pileId, QString *error)
     }
 
     return recalculateStationStats(stationId, error);
+
+    },error);
 }
 
 bool DatabaseManager::setPileState(int pileId, int state, QString *error)
 {
+    return mutate([&]() -> bool {
+
+    if(!canModifyPile(pileId,false,error)) return false;
+    if(state==1) {
+        if(error) *error=QStringLiteral("充电状态由订单建立，不能手动设置");
+        return false;
+    }
+    QSqlQuery health(m_db);
+    health.prepare(QStringLiteral("SELECT health_level FROM piles WHERE id=?"));
+    health.addBindValue(pileId);
+    if(!health.exec() || !health.next()) { if(error) *error=QStringLiteral("电桩不存在"); return false; }
+    if(state==0 && health.value(0).toInt()!=0) {
+        if(error) *error=QStringLiteral("请先排查并恢复健康状态，不能直接将异常桩设为空闲");
+        return false;
+    }
+    health.finish();
+
     int stationId = -1;
     QSqlQuery lookup(m_db);
     lookup.prepare(QStringLiteral("SELECT station_id FROM piles WHERE id = ?"));
@@ -387,6 +496,8 @@ bool DatabaseManager::setPileState(int pileId, int state, QString *error)
     }
 
     return recalculateStationStats(stationId, error);
+
+    },error);
 }
 
 bool DatabaseManager::remoteRestartPile(int pileId, QString *message, QString *error)
@@ -405,7 +516,7 @@ bool DatabaseManager::remoteRestartPile(int pileId, QString *message, QString *e
         return false;
     }
     if (message) {
-        *message = QStringLiteral("已向 %1 发送远程重启指令，电桩已切回闲置").arg(code);
+        *message = QStringLiteral("已对 %1 执行模拟重启，电桩已切回闲置").arg(code);
     }
     return true;
 }
@@ -465,19 +576,7 @@ bool DatabaseManager::openDatabase(QString *error)
     return true;
 }
 
-bool DatabaseManager::runStatements(const QStringList &statements, QString *error) const
-{
-    for (const QString &sql : statements) {
-        QSqlQuery query(m_db);
-        if (!query.exec(sql)) {
-            if (error) {
-                *error = query.lastError().text();
-            }
-            return false;
-        }
-    }
-    return true;
-}
+
 
 bool DatabaseManager::ensureSchema(QString *error)
 {
@@ -609,21 +708,7 @@ bool DatabaseManager::recalculateAllStationStats(QString *error)
         }
     }
     return true;
-}    QHash<int, double> DatabaseManager::stationBasePriceMap(QString *error) const
-{
-    QHash<int, double> map;
-    QSqlQuery query(m_db);
-    if (!query.exec(QStringLiteral("SELECT id, base_price FROM stations ORDER BY id ASC"))) {
-        if (error) {
-            *error = query.lastError().text();
-        }
-        return map;
-    }
-    while (query.next()) {
-        map.insert(query.value(0).toInt(), query.value(1).toDouble());
-    }
-    return map;
-}
+}    
 
 
 }

@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QScopeGuard>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -8,6 +9,7 @@
 
 #include "mainwindow.h"
 #include "stationstore.h"
+#include "admin_repository.h"
 #include "pricingservice.h"
 #include "selfhealservice.h"
 #include "loadforecast.h"
@@ -47,6 +49,14 @@ int main(int argc, char *argv[])
     // 关键：管理后台（登录/业绩/桩状态/桩管理/用户管理）与 StationStore 使用同一个库，
     // 消除原先“后台读另一个库、用户端订单永远进不来”的双库分裂问题。
     pcserver::setAdminDatabasePath(dbPath);
+    if(!pcserver_admin::DatabaseManager::instance().attach(store,&error)) {
+        QMessageBox::critical(nullptr,QStringLiteral("管理员数据初始化失败"),error);
+        return 1;
+    }
+
+    const auto releaseAdminContext = qScopeGuard([&store] {
+        pcserver_admin::DatabaseManager::instance().detach(store.connectionName());
+    });
 
     QString seedError;
     if (!store.seedDemoIfEmpty(&seedError)) {

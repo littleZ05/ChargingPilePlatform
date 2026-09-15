@@ -42,6 +42,9 @@ void TstUserManagement::userTableHeadersAndSeedRows()
     QVERIFY2(store.open(m_dir.filePath(QStringLiteral("station-test.db")), &error),
              qPrintable(error));
 
+    for(int i=1;i<=5;++i)
+        QVERIFY(store.execPrepared("INSERT INTO users(phone,nickname,balance,status) VALUES(?,?,100,0)",
+            {QStringLiteral("1380000000%1").arg(i),QStringLiteral("测试用户%1").arg(i)},&error));
     MainWindow window(&store);
     auto *table = window.findChild<QTableWidget *>(QStringLiteral("userTable"));
     QVERIFY(table);
@@ -55,7 +58,7 @@ void TstUserManagement::userTableHeadersAndSeedRows()
         QCOMPARE(table->horizontalHeaderItem(col)->text(), expected.at(col));
     }
 
-    // DatabaseManager 首次初始化会灌入 5 个演示用户
+    // Test fixture explicitly owns its five users; opening UI must not seed business rows.
     QCOMPARE(table->rowCount(), 5);
     QCOMPARE(table->item(0, 1)->text(), QStringLiteral("13800000001"));
     QCOMPARE(table->item(0, 5)->text(), QStringLiteral("正常"));
@@ -68,6 +71,9 @@ void TstUserManagement::fuzzyPhoneSearchAndLikeEscape()
     QVERIFY2(store.open(m_dir.filePath(QStringLiteral("station-test2.db")), &error),
              qPrintable(error));
 
+    for(int i=1;i<=5;++i)
+        QVERIFY(store.execPrepared("INSERT INTO users(phone,nickname,balance,status) VALUES(?,?,100,0)",
+            {QStringLiteral("1380000000%1").arg(i),QStringLiteral("测试用户%1").arg(i)},&error));
     MainWindow window(&store);
     auto *table = window.findChild<QTableWidget *>(QStringLiteral("userTable"));
     auto *edit = window.findChild<QLineEdit *>(QStringLiteral("userSearchEdit"));
@@ -98,6 +104,9 @@ void TstUserManagement::freezeAndUnfreezeUser()
     QVERIFY2(store.open(m_dir.filePath(QStringLiteral("station-test3.db")), &error),
              qPrintable(error));
 
+    for(int i=1;i<=5;++i)
+        QVERIFY(store.execPrepared("INSERT INTO users(phone,nickname,balance,status) VALUES(?,?,100,0)",
+            {QStringLiteral("1380000000%1").arg(i),QStringLiteral("测试用户%1").arg(i)},&error));
     MainWindow window(&store);
     auto *table = window.findChild<QTableWidget *>(QStringLiteral("userTable"));
     auto *freezeButton = window.findChild<QPushButton *>(QStringLiteral("userFreezeButton"));
@@ -131,18 +140,14 @@ void TstUserManagement::freezeAndUnfreezeUser()
     QVERIFY(!unfreezeButton->isEnabled());
 
     // 落库持久化验证：直接查询同一数据库文件
-    QSqlDatabase checkDb = QSqlDatabase::addDatabase(
-        QStringLiteral("QSQLITE"), QStringLiteral("usermanage_check"));
-    checkDb.setDatabaseName(m_dbPath);
-    QVERIFY(checkDb.open());
+    QSqlDatabase checkDb = QSqlDatabase::database(store.connectionName());
     QSqlQuery query(checkDb);
     QVERIFY(query.exec(QStringLiteral(
         "SELECT status FROM users WHERE phone = '13800000002'")));
     QVERIFY(query.next());
     QCOMPARE(query.value(0).toInt(), 0);
     query.clear();
-    checkDb.close();
-    QSqlDatabase::removeDatabase(QStringLiteral("usermanage_check"));
+
 }
 
 void TstUserManagement::cleanupTestCase()
