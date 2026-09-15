@@ -90,6 +90,32 @@ double roundLoad(double value)
     return qRound(value * 10.0) / 10.0;
 }
 
+/** Missing hours are estimates, not measured zero: interpolate interior gaps,
+ * carry the nearest measured value at edges, preserve measured zeros. */
+QVector<double> interpolateHours(const QHash<qint64,double> &observations,
+                                const QDateTime &start, int hours, int *imputed)
+{
+    QVector<double> values(hours,0.0);
+    QVector<int> measured;
+    for(int i=0;i<hours;++i) {
+        const auto key=start.addSecs(i*3600).toMSecsSinceEpoch();
+        if(observations.contains(key)) {
+            measured.append(i);
+            values[i]=roundLoad(observations.value(key));
+        }
+    }
+    if(imputed) *imputed=hours-measured.size();
+    if(measured.isEmpty()) return values;
+    for(int i=0;i<measured.first();++i) values[i]=values[measured.first()];
+    for(int n=1;n<measured.size();++n) {
+        const int left=measured[n-1], right=measured[n];
+        for(int i=left+1;i<right;++i)
+            values[i]=roundLoad(values[left]+(values[right]-values[left])*(i-left)/(right-left));
+    }
+    for(int i=measured.last()+1;i<hours;++i) values[i]=values[measured.last()];
+    return values;
+}
+
 /** 全平台电桩功率合计（stateFilter<0 表示全部，否则按状态过滤）；失败返回 -1 */
 double sumPilesPower(const QSqlDatabase &db, int stateFilter, QString *errorText)
 {
@@ -529,7 +555,7 @@ double StationStore::currentLoadKw(int stationId, QString *error) const
 
 QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
                                                 bool *usedDemoFallback,
-                                                QString *error) const
+                                                QString *error, int *imputedHours) const
 {
     QVector<double> result;
     if (!isOpen()) {
@@ -575,17 +601,8 @@ QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
 
     const double capacityKw = ratedCapacityKw(stationId, error);
     const double currentKw = currentLoadKw(stationId, error);
-    result.reserve(hours);
-    int observedSamples = 0;
-    for (int k = 0; k < hours; ++k) {
-        const QDateTime bucketStart = windowStart.addSecs(k * 3600);
-        double kw = loadByHour.value(bucketStart.toMSecsSinceEpoch(), 0.0);
-        if (k == hours - 1 && currentKw > 0.0)
-            kw = currentKw;  // 最近小时与实际充电状态对齐（实时负荷优先）
-        if (loadByHour.contains(bucketStart.toMSecsSinceEpoch()))
-            ++observedSamples;
-        result.push_back(roundLoad(kw));
-    }
+    const int observedSamples = loadByHour.size();
+    result = interpolateHours(loadByHour,windowStart,hours,imputedHours);
 
     const int needReal = std::max(3, hours / 3);
     if (observedSamples >= needReal) {
@@ -600,7 +617,7 @@ QVector<double> StationStore::hourlyLoadSamples(int stationId, int hours,
 
 QVector<double> StationStore::platformHourlyLoadSamples(int hours,
                                                         bool *usedDemoFallback,
-                                                        QString *error) const
+                                                        QString *error, int *imputedHours) const
 {
     QVector<double> result;
     if (!isOpen()) {
@@ -652,17 +669,8 @@ QVector<double> StationStore::platformHourlyLoadSamples(int hours,
         return result;
     }
 
-    result.reserve(hours);
-    int observedSamples = 0;
-    for (int k = 0; k < hours; ++k) {
-        const QDateTime bucketStart = windowStart.addSecs(k * 3600);
-        double kw = loadByHour.value(bucketStart.toMSecsSinceEpoch(), 0.0);
-        if (k == hours - 1 && currentKw > 0.0)
-            kw = currentKw;  // 最近小时与实时充电状态对齐
-        if (loadByHour.contains(bucketStart.toMSecsSinceEpoch()))
-            ++observedSamples;
-        result.push_back(roundLoad(kw));
-    }
+    const int observedSamples = loadByHour.size();
+    result = interpolateHours(loadByHour,windowStart,hours,imputedHours);
 
     const int needReal = std::max(3, hours / 3);
     if (observedSamples >= needReal) {
@@ -772,7 +780,7 @@ bool StationStore::dashboardSnapshot(DashboardSnapshot *out, int forecastHorizon
     // 4) 近 24h 平台负荷（真实聚合优先 + 仿真兜底）与 NO.17 预测
     QString loadError;
     bool usedDemoFallback = false;
-    snap.load24hKw = platformHourlyLoadSamples(24, &usedDemoFallback, &loadError);
+    snap.load24hKw = platformHourlyLoadSamples(24, &usedDemoFallback, &loadError, &snap.loadImputedHours);
     if (!loadError.isEmpty()) {
         if (error) *error = loadError;
         return false;

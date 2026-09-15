@@ -88,6 +88,7 @@ QJsonObject snapshotToData(const pcserver::DashboardSnapshot &snap)
     forecast.insert(QStringLiteral("ok"), snap.forecastOk);
     forecast.insert(QStringLiteral("error"), snap.forecastError);
     forecast.insert(QStringLiteral("horizon"), snap.forecastHorizon);
+    forecast.insert(QStringLiteral("imputed_hours"), snap.loadImputedHours);
     QJsonArray forecastKw;
     for (double v : snap.forecastKw)
         forecastKw.append(v);

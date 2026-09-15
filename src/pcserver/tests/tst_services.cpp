@@ -19,6 +19,7 @@ private slots:
     void eventFailureRollsBack();
     void missingForecastDoesNotDiscount();
     void calibrateExcludesKnownAnomalies();
+    void sparseMeasurementsCannotDrivePricing();
 private:
     QTemporaryDir temporary;
     pcserver::StationStore store;
@@ -126,6 +127,14 @@ void TestServices::calibrateExcludesKnownAnomalies()
     QCOMPARE(scalar("SELECT low_threshold FROM pile_health_metrics"),40);
     sql("UPDATE piles SET health_level=1");
     QVERIFY(!service.rebuildThreshold(1,&error));
+}
+
+void TestServices::sparseMeasurementsCannotDrivePricing()
+{
+    for(int hour=1;hour<=4;++hour)
+        QVERIFY(store.execPrepared("INSERT INTO pile_power_logs(pile_id,real_power,logged_at) VALUES(1,0,?)",
+            {QDateTime::currentDateTime().addSecs(-hour*3600).toString("yyyy-MM-dd HH:mm:ss")}));
+    QCOMPARE(pcserver::predictIdleRatePercent(store,1),-1.0);
 }
 
 QTEST_GUILESS_MAIN(TestServices)

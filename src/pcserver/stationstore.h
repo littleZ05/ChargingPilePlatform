@@ -61,6 +61,7 @@ struct DashboardSnapshot
     QVector<int>    order7d;        // 近 7 日订单数（旧→新）
 
     QVector<double> load24hKw;      // 近 24h 平台负荷采样（旧→新，末位=当前小时）
+    int    loadImputedHours = 0;
     bool   loadUsedDemoFallback = false; // 采样不足时是否走确定性仿真曲线
 
     bool    forecastOk = false;
@@ -126,7 +127,7 @@ public:
     double currentLoadKw(int stationId, QString *error = nullptr) const;
     QVector<double> hourlyLoadSamples(int stationId, int hours,
                                       bool *usedDemoFallback = nullptr,
-                                      QString *error = nullptr) const;
+                                      QString *error = nullptr, int *imputedHours = nullptr) const;
 
     /**
      * NO.16 平台级 24h 负荷采样（所有电站合计，策略与按站版一致）：
@@ -135,7 +136,7 @@ public:
      */
     QVector<double> platformHourlyLoadSamples(int hours,
                                               bool *usedDemoFallback = nullptr,
-                                              QString *error = nullptr) const;
+                                              QString *error = nullptr, int *imputedHours = nullptr) const;
 
     /**
      * NO.16 Web 大屏全量快照：

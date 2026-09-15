@@ -2254,8 +2254,9 @@ void MainWindow::refreshLoadForecast()
         d->forecastModelCombo->currentData().toInt());
 
     bool usedDemoFallback = false;
+    int imputedHours = 0;
     const QVector<double> history =
-        d->store->hourlyLoadSamples(stationId, hours, &usedDemoFallback, &error);
+        d->store->hourlyLoadSamples(stationId, hours, &usedDemoFallback, &error, &imputedHours);
     if (history.size() != hours) {
         d->forecastStatusLabel->setText(
             QStringLiteral("历史负荷采样失败：%1").arg(error.isEmpty() ? QStringLiteral("未知错误") : error));
@@ -2274,7 +2275,7 @@ void MainWindow::refreshLoadForecast()
     d->forecastStatusLabel->setText(QStringLiteral("后台计算中…"));
     connect(watcher, &QFutureWatcher<cp::ForecastCalculation>::finished, this,
             [this, watcher, generation, history, stationName, usedDemoFallback,
-             currentKw, capacityKw] {
+             currentKw, capacityKw, imputedHours] {
         const auto calculated = watcher->result();
         watcher->deleteLater();
         if (generation != m_forecastGeneration)
@@ -2285,7 +2286,7 @@ void MainWindow::refreshLoadForecast()
             return;
         }
         fillLoadForecastChart(d->forecastChartView, stationName, currentHourAnchor(), history, result);
-        const QString source = usedDemoFallback ? QStringLiteral("演示采样") : QStringLiteral("功率记录聚合");
+        const QString source = usedDemoFallback ? QStringLiteral("演示采样") : QStringLiteral("功率记录聚合（%1小时插补）").arg(imputedHours);
         const bool warning = capacityKw > 0 && result.peakForecastKw / capacityKw >= 0.8;
         d->forecastStatusLabel->setText(QStringLiteral(
             "当前 %1 kW ｜预测模型：%2 ｜ %3 ｜峰值预测 %4 kW（未来第%5小时）｜数据源：%6｜%7")
