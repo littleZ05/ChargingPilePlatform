@@ -708,7 +708,7 @@ bool DatabaseManager::recalculateAllStationStats(QString *error)
         }
     }
     return true;
-}    
+}
 
 
 }
