@@ -71,6 +71,7 @@
 #include "opsconsole.h"
 #include "charge_service.h"
 #include "forecast_async.h"
+#include "pricingservice.h"
 #include <QFutureWatcher>
 #include "stationstore.h"
 #include "uitheme.h"
@@ -3150,6 +3151,13 @@ void MainWindow::handleStationQueryPacket(QTcpSocket *client,
         item.insert(QStringLiteral("price"), station.currentPrice);
         item.insert(QStringLiteral("discount"), station.discount);
         item.insert(QStringLiteral("is_discount"), station.onSale);
+        const double predictedIdle = pcserver::predictIdleRatePercent(*d->store, station.id);
+        item.insert(QStringLiteral("forecast_available"), predictedIdle >= 0);
+        item.insert(QStringLiteral("predicted_idle_rate"), predictedIdle);
+        item.insert(QStringLiteral("predicted_idle_piles"), predictedIdle >= 0
+                    ? qBound(0, qRound(station.totalPiles * predictedIdle / 100.0), station.totalPiles) : -1);
+        item.insert(QStringLiteral("forecast_horizon_hours"), 1);
+        item.insert(QStringLiteral("forecast_basis"), QStringLiteral("小时功率估算，非排队承诺"));
         stationArray.append(item);
         ++returned;
     }

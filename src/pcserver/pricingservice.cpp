@@ -30,7 +30,7 @@ double predictIdleRatePercent(StationStore &store, int stationId)
     bool usedDemoFallback = false;
     const QVector<double> history =
         store.hourlyLoadSamples(stationId, 12, &usedDemoFallback, &err);
-    if (history.size() < cp::LoadForecast::kMinSamples)
+    if (usedDemoFallback || history.size() < cp::LoadForecast::kMinSamples)
         return -1.0;
 
     cp::LoadForecastInput input;
