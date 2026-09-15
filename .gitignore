@@ -53,3 +53,7 @@ Thumbs.db
 # ---- 数据库运行时文件 ----
 *.db
 *.sqlite
+
+# Python verification tools
+__pycache__/
+*.pyc
