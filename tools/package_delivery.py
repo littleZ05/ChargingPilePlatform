@@ -24,7 +24,8 @@ shutil.copy2(report_path, output / 'verification.json')
 with tarfile.open(output / 'test-evidence.tar.gz', 'w:gz') as evidence:
     for path in sorted((root / 'build-verification').rglob('*')):
         if path.is_file() and (path.name in {'results.xml', 'verify.log', 'python-tools-tests.log',
-                                            'charging-settled.png', 'charging-server.log'}):
+                                            'charging-settled.png', 'charging-server.log',
+                                            'dashboard-live.png', 'dashboard-zero-1024.png'}):
             evidence.add(path, arcname=str(path.relative_to(root / 'build-verification')))
 manifest = dict(commit=revision, delivery='source-with-test-evidence',
                 environment='Ubuntu 22.04 / Qt 6.2.4; Qt libraries required on target', files={})

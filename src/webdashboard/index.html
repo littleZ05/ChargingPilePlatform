@@ -364,6 +364,14 @@
       .chart-host { height: 320px; }
     }
 
+    @media (max-height: 820px) and (min-width: 901px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100vh; }
+      main { flex: none; }
+      .page > .panel { flex: none; min-height: 420px; }
+      .chart-host { height: 350px; }
+    }
+
     @media (max-width: 560px) {
       .kpi-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -525,6 +533,16 @@
        * - 对外暴露 window.updateDashboardData(data)，便于后续 WebChannel 等通道接入。
        * ===================================================================== */
       var DATA_BACKEND = 'http://127.0.0.1:8890/api/dashboard/overview';
+      // A shared file can target a configured local service without editing source.
+      var requestedBackend = new URLSearchParams(window.location.search).get('api');
+      if (requestedBackend) {
+        try {
+          var configuredUrl = new URL(requestedBackend);
+          if (configuredUrl.protocol === 'http:' || configuredUrl.protocol === 'https:') {
+            DATA_BACKEND = configuredUrl.href;
+          }
+        } catch (_) { /* Invalid settings keep the documented default. */ }
+      }
       var REFRESH_MS = 10000;       // 大屏数据轮询间隔
       var FETCH_TIMEOUT_MS = 4000;  // 单次请求超时
 

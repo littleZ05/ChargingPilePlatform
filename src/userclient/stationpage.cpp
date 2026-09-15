@@ -143,6 +143,7 @@ void StationPage::applyServerStations(
         s.idlePiles  = st.idlePiles;
         s.onlineRate = st.onlineRate;
         s.serverSale = st.onSale;
+        s.serverPrice = st.price;
         s.predictedIdleRate = st.predictedIdleRate;
         s.predictedIdlePiles = st.predictedIdlePiles;
         s.type       = QStringLiteral("快慢兼有");
