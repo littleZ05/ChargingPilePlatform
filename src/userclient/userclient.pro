@@ -37,3 +37,7 @@ HEADERS += \
 QMAKE_CXXFLAGS += -Wall
 
 SOURCES += $$PWD/session_business.cpp
+
+QT += webenginewidgets
+SOURCES += map_routes.cpp
+HEADERS += map_routes.h

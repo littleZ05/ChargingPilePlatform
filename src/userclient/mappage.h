@@ -6,18 +6,15 @@
 #include <QWidget>
 
 #include "station.h"
+#include "map_routes.h"
 
 class QLabel;
+class QWebEngineView;
+class QComboBox;
 class QNetworkAccessManager;
 class QNetworkReply;
 
-/** 地图导航页（NO.5，负责人：葛伊诺）。
- *  顶部返回栏 + 静态地图底图区 + 底部路线信息 + 打开腾讯地图。
- *  底图：腾讯「静态图」API（/ws/staticmap/v2）返回 PNG 图片，用 QLabel 显示，
- *        免去 QWebEngineView 依赖；起终点用 markers 标注。
- *  路线：距离/时长来自腾讯 WebService 驾车路线规划 API，
- *        polyline 解码后作为静态图 path 参数，画出真实驾车路线折线。
- */
+/** 内嵌腾讯路线规划，支持驾车和步行；静态图用于预览和加载失败兜底。 */
 class MapPage : public QWidget
 {
     Q_OBJECT
@@ -40,6 +37,9 @@ private:
     int      autoZoom(double distanceKm) const;
     void     showFallbackInfo();
 
+    QUrl navigationUrl() const;
+    QWebEngineView *m_web = nullptr;
+    QComboBox *m_mode = nullptr;
     Station m_station;
     int     m_seq    = 0;  // 路线请求序号（丢弃过期响应）
     int     m_mapSeq = 0;  // 静态图请求序号（丢弃过期响应）
