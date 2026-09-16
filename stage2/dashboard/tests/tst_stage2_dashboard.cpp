@@ -64,10 +64,28 @@ void Stage2DashboardTest::rendersLiveDataAndBatteryView()
     QTest::qWait(1000);
     QVERIFY(view.grab().save(QString(shot).replace(QStringLiteral(".png"), QStringLiteral("-battery.png"))));
 
+    // 回到运营视图并做一次真实筛选联动（平台=ios + 电量=正电量）
+    evaluate(view.page(), "document.querySelector('[data-view=operations]').click()");
+    QTRY_VERIFY_WITH_TIMEOUT(evaluate(view.page(),
+        "document.getElementById('platform').options.length").toInt() >= 2, 15000);
+    evaluate(view.page(), "var s=document.getElementById('platform');"
+                          "s.value='ios';s.dispatchEvent(new Event('change'));");
+    QTest::qWait(1200);
+    evaluate(view.page(), "var s=document.getElementById('energy');"
+                          "s.value='positive';s.dispatchEvent(new Event('change'));");
+    QTRY_VERIFY_WITH_TIMEOUT(evaluate(view.page(),
+        "document.getElementById('scope').textContent").toString().contains(QStringLiteral("当前")), 20000);
+    const QString filtered = evaluate(view.page(), "document.getElementById('sessions').textContent").toString();
+    QVERIFY2(filtered != sessions, qPrintable(QStringLiteral("筛选未联动：%1").arg(filtered)));
+    QTest::qWait(1200);
+    QVERIFY(view.grab().save(QString(shot).replace(QStringLiteral(".png"), QStringLiteral("-filtered.png"))));
+
     // 数据质量视图：标签表必须有行，且注明不能相加
     evaluate(view.page(), "document.querySelector('[data-view=quality]').click()");
     QTRY_VERIFY_WITH_TIMEOUT(evaluate(view.page(),
         "document.querySelectorAll('#quality-rows tr').length").toInt() >= 1, 20000);
+    QTest::qWait(800);
+    QVERIFY(view.grab().save(QString(shot).replace(QStringLiteral(".png"), QStringLiteral("-quality.png"))));
 }
 
 int main(int argc, char **argv)
