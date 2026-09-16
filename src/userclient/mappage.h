@@ -10,11 +10,10 @@
 
 class QLabel;
 class QWebEngineView;
-class QComboBox;
 class QNetworkAccessManager;
 class QNetworkReply;
 
-/** 内嵌腾讯路线规划，支持驾车和步行；静态图用于预览和加载失败兜底。 */
+/** 内嵌腾讯路线规划，支持驾车；静态图用于预览和加载失败兜底。 */
 class MapPage : public QWidget
 {
     Q_OBJECT
@@ -39,7 +38,6 @@ private:
 
     QUrl navigationUrl() const;
     QWebEngineView *m_web = nullptr;
-    QComboBox *m_mode = nullptr;
     Station m_station;
     int     m_seq    = 0;  // 路线请求序号（丢弃过期响应）
     int     m_mapSeq = 0;  // 静态图请求序号（丢弃过期响应）

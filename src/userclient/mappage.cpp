@@ -2,7 +2,6 @@
 
 #include <QLabel>
 #include <QWebEngineView>
-#include <QComboBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -78,17 +77,6 @@ MapPage::MapPage(QWidget *parent)
     tl->addWidget(m_routeLabel, 1);
     tl->addWidget(locBtn);
     v->addWidget(top);
-    m_mode = new QComboBox(this);
-    m_mode->setObjectName(QStringLiteral("travelMode"));
-    m_mode->addItem(QStringLiteral("驾车"));
-    m_mode->addItem(QStringLiteral("步行"));
-    v->addWidget(m_mode);
-    connect(m_mode, &QComboBox::currentIndexChanged, this, [this] {
-        if (!m_station.name.isEmpty()) {
-            setRoute(m_station);
-            if (m_web->isVisible()) openMap();
-        }
-    });
 
     // ---- 静态地图区（图片由静态图 API 返回，直接用 QLabel 显示）----
     auto *mapArea = new QFrame(this);
@@ -162,11 +150,11 @@ void MapPage::setRoute(const Station &station)
 void MapPage::fetchRoute()
 {
     const QString url = QStringLiteral(
-        "https://apis.map.qq.com/ws/direction/v1/%6/"
+        "https://apis.map.qq.com/ws/direction/v1/driving/"
         "?from=%1,%2&to=%3,%4&key=%5")
         .arg(gUserLocation.lat).arg(gUserLocation.lng)
         .arg(m_station.latitude).arg(m_station.longitude)
-        .arg(tencentMapKey()).arg(m_mode->currentIndex()==1 ? "walking" : "driving");
+        .arg(tencentMapKey());
 
     QNetworkRequest req((QUrl(url)));
     req.setTransferTimeout(10000);
@@ -200,10 +188,10 @@ void MapPage::onRouteReply(QNetworkReply *reply)
     const int minutes = qMax(1, qRound(route.value(QStringLiteral("duration")).toDouble())); // 分钟
     const int lights = route.value(QStringLiteral("traffic_light_count")).toInt();
 
-    m_infoLabel->setText(QStringLiteral("%4导航 · 距离约 %1 km · 预计 %2 分钟 · 途经 %3 个红绿灯")
+    m_infoLabel->setText(QStringLiteral("驾车导航 · 距离约 %1 km · 预计 %2 分钟 · 途经 %3 个红绿灯")
                              .arg(QString::number(km, 'f', 1))
                              .arg(minutes)
-                             .arg(lights).arg(m_mode->currentText()));
+                             .arg(lights));
 
     // 解码路线坐标，作为静态图 path 画出真实驾车路线
     m_routePath = downsample(userclient::decodeTencentPolyline(route.value(QStringLiteral("polyline")).toArray()),
@@ -213,6 +201,13 @@ void MapPage::onRouteReply(QNetworkReply *reply)
 
 void MapPage::loadStaticMap()
 {
+    // Key 未配置时直接给出可读提示，避免「地图图片解析失败」的歧义
+    if (tencentMapKey().isEmpty()) {
+        m_mapLabel->setText(QStringLiteral("未配置地图 Key\n请设置环境变量 TENCENT_MAP_KEY"));
+        qWarning() << "[map] TENCENT_MAP_KEY 未设置，静态地图不可用";
+        return;
+    }
+
     ++m_mapSeq;
     QNetworkRequest req(QUrl::fromEncoded(staticMapUrl().toUtf8()));
     req.setTransferTimeout(10000);
@@ -299,10 +294,10 @@ void MapPage::onStaticMapReply(QNetworkReply *reply)
 void MapPage::showFallbackInfo()
 {
     const double km = distanceKm(gUserLocation.lat, gUserLocation.lng, m_station.latitude, m_station.longitude);
-    const int minutes = qMax(1, qRound(km / (m_mode->currentIndex()==1 ? 5.0 : 40.0) * 60.0));
-    m_infoLabel->setText(QStringLiteral("%3导航 · 距离约 %1 km · 预计 %2 分钟（直线估算）")
+    const int minutes = qMax(1, qRound(km / 40.0 * 60.0));
+    m_infoLabel->setText(QStringLiteral("驾车导航 · 距离约 %1 km · 预计 %2 分钟（直线估算）")
                              .arg(QString::number(km, 'f', 1))
-                             .arg(minutes).arg(m_mode->currentText()));
+                             .arg(minutes));
 
     m_routePath.clear();
     loadStaticMap(); // 无路线时只保留起终点标注
@@ -311,8 +306,7 @@ void MapPage::showFallbackInfo()
 QUrl MapPage::navigationUrl() const
 {
     return userclient::routePlanUrl(gUserLocation.lat,gUserLocation.lng,gUserLocation.label,
-        m_station.latitude,m_station.longitude,m_station.name,
-        m_mode->currentIndex()==1 ? userclient::TravelMode::Walking : userclient::TravelMode::Driving);
+        m_station.latitude,m_station.longitude,m_station.name);
 }
 
 void MapPage::openMap()

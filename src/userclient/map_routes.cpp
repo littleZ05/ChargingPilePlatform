@@ -8,13 +8,13 @@ bool validCoordinates(double latitude, double longitude)
            && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
 }
 QUrl routePlanUrl(double fromLat, double fromLng, const QString &fromName,
-                  double toLat, double toLng, const QString &toName, TravelMode mode)
+                  double toLat, double toLng, const QString &toName)
 {
     if (!validCoordinates(fromLat,fromLng) || !validCoordinates(toLat,toLng))
         return {};
     QUrl url(QStringLiteral("https://apis.map.qq.com/uri/v1/routeplan"));
     QUrlQuery query;
-    query.addQueryItem("type",mode == TravelMode::Walking ? "walk" : "drive");
+    query.addQueryItem("type","drive");
     query.addQueryItem("from",fromName);
     query.addQueryItem("fromcoord",QStringLiteral("%1,%2").arg(fromLat,0,'f',6).arg(fromLng,0,'f',6));
     query.addQueryItem("to",toName);
