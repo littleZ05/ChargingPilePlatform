@@ -18,6 +18,7 @@ python3 tools/package_delivery.py   # 对已验证的干净提交生成源码与
 图形演示在Ubuntu桌面终端运行。Qt模块：Widgets、Network、Sql、Charts、Concurrent、WebEngineWidgets；地图API需要有效的 TENCENT_MAP_KEY。管理员 admin / 123456；用户输入11位手机号免密登录。演示库在 `build-demo/chargingpile.db`。
 
 - [使用手册](docs/使用手册.md)：安装、操作、数据恢复与故障排查。
+- [演示设定清单](docs/演示设定清单.md)：新用户100元、模拟充值/电量、种子数据和场景按钮的全部说明。
 - [测试方案](docs/测试方案.md)：自动化、异常与界面验收步骤。
 - [测试执行结果](docs/测试执行结果.md)：实际提交、数量、日志和未验收项。
 - [需求验收追踪](docs/需求验收追踪.md)：23项需求与证据/限制。
