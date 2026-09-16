@@ -55,9 +55,10 @@ LoginPage::LoginPage(QWidget *parent)
     outer->addStretch();
 
     auto *demo = new QLabel(QStringLiteral(
-        "演示账号：\n13800138001（有余额）\n13800138002（无余额）"), this);
+        "可输入任意11位手机号登录\n首次注册赠送100元演示余额\n已有账号余额以登录后的显示为准"), this);
     demo->setObjectName(QStringLiteral("hintText"));
     demo->setAlignment(Qt::AlignCenter);
+    demo->setWordWrap(true);
     outer->addWidget(demo);
 
     connect(m_phoneEdit, &QLineEdit::returnPressed, this, &LoginPage::tryLogin);
@@ -74,6 +75,6 @@ void LoginPage::tryLogin()
         QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请输入正确的11位手机号"));
         return;
     }
-    // TODO(geyinuo): 接入 Socket 后调用登录/注册接口，落库 users 表。
+    // 主窗口接收手机号，通过服务器登录或自动注册。
     emit loginSucceeded(phone);
 }

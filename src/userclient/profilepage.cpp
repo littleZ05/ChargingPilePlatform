@@ -65,9 +65,10 @@ ProfilePage::ProfilePage(QWidget *parent)
     infoV->addWidget(m_phoneLabel);
     infoV->addWidget(regLabel);
 
-    auto *saveBtn = new QPushButton(QStringLiteral("保存"), infoCard);
+    auto *saveBtn = new QPushButton(QStringLiteral("修改昵称"), infoCard);
     saveBtn->setObjectName(QStringLiteral("ghostButton"));
-    saveBtn->setFixedWidth(64);
+    saveBtn->setMinimumWidth(100);
+    saveBtn->setToolTip(QStringLiteral("输入新昵称，确认后保存到服务器"));
     connect(saveBtn, &QPushButton::clicked, this, &ProfilePage::editProfile);
 
     row->addWidget(avatar);
@@ -256,7 +257,7 @@ void ProfilePage::addOrder(const Order &order)
 void ProfilePage::editProfile()
 {
     bool ok = false;
-    const QString newNick = QInputDialog::getText(this, QStringLiteral("编辑资料"),
+    const QString newNick = QInputDialog::getText(this, QStringLiteral("修改昵称"),
                                                   QStringLiteral("昵称："), QLineEdit::Normal,
                                                   m_nickname, &ok);
     if (ok && !newNick.trimmed().isEmpty()) {
