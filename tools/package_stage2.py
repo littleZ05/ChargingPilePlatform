@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import tarfile
@@ -43,10 +44,13 @@ def run_suites(root, evidence_dir):
     for suite in SUITES:
         completed = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', suite, '-v'],
                                    cwd=root, text=True, capture_output=True)
+        combined = completed.stdout + completed.stderr
         log = evidence_dir / (suite.replace('/', '_') + '.log')
-        log.write_text(completed.stdout + completed.stderr, encoding='utf-8')
+        log.write_text(combined, encoding='utf-8')
+        ran = re.search(r'Ran (\d+) tests?', combined)
         results.append(dict(suite=suite, exit_code=completed.returncode,
-                            tests=completed.stdout.count('... ok') + completed.stdout.count('... FAIL'),
+                            tests=int(ran.group(1)) if ran else combined.count('... ok'),
+                            passed=combined.count('... ok'), failed=combined.count('... FAIL'),
                             log=str(log.relative_to(root))))
     return results
 
