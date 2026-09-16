@@ -25,6 +25,13 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual(stats['p25'], 1.75)
         self.assertEqual(stats['p75'], 3.25)
 
+    def test_usable_flag_accepts_integer_and_text(self):
+        self.assertTrue(analysis.usable(1))
+        self.assertTrue(analysis.usable('1'))
+        self.assertFalse(analysis.usable(0))
+        self.assertFalse(analysis.usable('0'))
+        self.assertFalse(analysis.usable(''))
+
     def test_pearson_and_regression_exact(self):
         pairs = [(x, 2 * x + 1) for x in range(10)]
         self.assertEqual(analysis.pearson(pairs), 1.0)
