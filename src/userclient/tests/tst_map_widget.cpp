@@ -4,11 +4,44 @@
 #include <QWebEnginePage>
 #include <QLabel>
 #include <QUrlQuery>
+#include <QEventLoop>
+#include <QTimer>
+#include <QPointer>
+#include <memory>
 #include "../mappage.h"
 class MapWidgetTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void onlineEmbeddedNavigation() {
+        if (qEnvironmentVariableIntValue("RUN_ONLINE_MAP_TESTS") != 1)
+            QSKIP("Explicit online acceptance only");
+        QWebEngineView browser;
+        browser.resize(600,850);
+        browser.show();
+        const auto url=userclient::routePlanUrl(40.040,116.300,QStringLiteral("当前位置"),
+            40.047,116.297,QStringLiteral("中关村软件园"),userclient::TravelMode::Walking);
+        QSignalSpy loaded(&browser,&QWebEngineView::loadFinished);
+        browser.load(url);
+        QTRY_VERIFY_WITH_TIMEOUT(!loaded.isEmpty(),30000);
+        QVERIFY2(loaded.last().first().toBool(),"Online route document failed to load");
+        QTest::qWait(5000);
+        auto text=std::make_shared<QString>();
+        QEventLoop loop;
+        QPointer<QEventLoop> guard(&loop);
+        browser.page()->toPlainText([text,guard](const QString &value){
+            *text=value;
+            if(guard) guard->quit();
+        });
+        QTimer::singleShot(5000,&loop,&QEventLoop::quit);
+        loop.exec();
+        qInfo().noquote() << "Online route page text:" << text->left(500);
+        QVERIFY(browser.grab().save("online-embedded-independent.png"));
+        QVERIFY2(text->contains(QStringLiteral("中关村")),
+                 "Loaded document does not show destination; loadFinished alone is insufficient");
+        QVERIFY2(!text->contains(QStringLiteral("少换乘")),
+                 "Walking URL rendered transit controls; travel-mode acceptance failed");
+    }
     void onlineRoutes() {
         if (qEnvironmentVariableIntValue("RUN_ONLINE_MAP_TESTS") != 1)
             QSKIP("Set RUN_ONLINE_MAP_TESTS=1 to explicitly consume online API quota");
