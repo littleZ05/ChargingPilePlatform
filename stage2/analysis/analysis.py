@@ -149,6 +149,11 @@ def load_sessions(connection):
         ' quality_flags, time_of_day_usable, weekday_usable from dwd_sessions')]
 
 
+def usable(value):
+    """可用性标记容错：CSV 里的 '1' 经 SQLite 类型推断可能变成整数 1。"""
+    return str(value).strip() in ('1', 'True', 'true')
+
+
 def station_features(rows):
     grouped = defaultdict(list)
     for row in rows:
@@ -209,8 +214,8 @@ def analyse(database, clusters=3):
         descriptives=dict(kwh=describe(energy), duration_hours=describe(durations)),
         correlation=dict(kwh_vs_duration=pearson(zip(durations, energy))),
         regression=dict(duration_to_kwh=linear_regression(zip(durations, energy))),
-        seasonality=dict(hour=seasonality([r for r in rows if r['time_of_day_usable'] == '1'], 'start_hour'),
-                         weekday=seasonality([r for r in rows if r['weekday_usable'] == '1'], 'weekday')),
+        seasonality=dict(hour=seasonality([r for r in rows if usable(r['time_of_day_usable'])], 'start_hour'),
+                         weekday=seasonality([r for r in rows if usable(r['weekday_usable'])], 'weekday')),
         clusters=dict(k=clusters, summary=cluster_summary, profiles=profiles),
         anomalies=dict(kwh=outliers(energy), duration_hours=outliers(durations)),
         caveats=['聚类用于描述站点画像，不代表经营优先级或因果关系。',
