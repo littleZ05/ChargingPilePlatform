@@ -186,6 +186,7 @@ void StationDetailPage::setStation(const Station &station)
     m_elapsedSec = 0;
     m_kwh = 0.0;
     m_activePile.clear();
+    m_myPileCode.clear();
     m_activePower = 0.0;
     m_serverUnitPrice = 0.0;
 
@@ -237,6 +238,7 @@ void StationDetailPage::setServerSession(userclient::PcServerSession *session)
             if (type == cp::MsgType::kStartCharge && r.value("code").toInt() != 0) {
                 m_phase = Phase::Idle;
                 m_chargingPile->setText(r.value("message").toString());
+                releaseMyPile();   // 服务器拒绝，桩标识回滚为「预约充电」
             }
             if (type != cp::MsgType::kOrderReport && type != cp::MsgType::kStopCharge)
                 return;
@@ -302,6 +304,7 @@ void StationDetailPage::onStartChargeResult(int code, const QString &message,
                                             double unitPrice)
 {
     if (code != 0) {
+        releaseMyPile();   // 服务器拒绝，桩标识回滚为「预约充电」
         QMessageBox::warning(this, QStringLiteral("开始充电失败"),
                              QStringLiteral("%1\n（错误码 %2）").arg(message).arg(code));
         return;
@@ -340,10 +343,27 @@ void StationDetailPage::rebuildPiles()
     }
 }
 
+void StationDetailPage::releaseMyPile()
+{
+    if (m_myPileCode.isEmpty())
+        return;
+    // 该桩本地状态还原为「空闲」（服务器回执可能已把它标为「使用中」，这里按用户操作即时释放）
+    for (Pile &p : m_station.piles) {
+        if (p.code == m_myPileCode && p.state != QStringLiteral("故障"))
+            p.state = QStringLiteral("空闲");
+    }
+    m_myPileCode.clear();
+    rebuildPiles();
+}
+
 QWidget *StationDetailPage::makePileCard(const Pile &p)
 {
+    const bool mine = (!m_myPileCode.isEmpty() && p.code == m_myPileCode);
+
     auto *card = new QFrame;
     card->setObjectName(QStringLiteral("card"));
+    if (mine)
+        card->setProperty("mine", true);   // 命中 QSS 高亮边框，区别于他人占用桩
     auto *h = new QHBoxLayout(card);
     h->setContentsMargins(14, 12, 14, 12);
     h->setSpacing(10);
@@ -357,11 +377,20 @@ QWidget *StationDetailPage::makePileCard(const Pile &p)
     left->addWidget(code);
     left->addWidget(spec);
 
+    // 状态徽标：我的桩显示「充电中」（亮蓝），与他人「使用中」（琥珀）明显区分
+    QString stateText = p.state;
     QString stateColor;
-    if (p.state == QStringLiteral("空闲"))      stateColor = QStringLiteral("#22c55e");
-    else if (p.state == QStringLiteral("故障")) stateColor = QStringLiteral("#ef4444");
-    else                                        stateColor = QStringLiteral("#f59e0b");
-    auto *state = new QLabel(p.state, card);
+    if (mine) {
+        stateText  = QStringLiteral("充电中");
+        stateColor = QStringLiteral("#0ea5e9");
+    } else if (p.state == QStringLiteral("空闲")) {
+        stateColor = QStringLiteral("#22c55e");
+    } else if (p.state == QStringLiteral("故障")) {
+        stateColor = QStringLiteral("#ef4444");
+    } else {
+        stateColor = QStringLiteral("#f59e0b");
+    }
+    auto *state = new QLabel(stateText, card);
     state->setAlignment(Qt::AlignCenter);
     state->setFixedSize(44, 20);
     state->setStyleSheet(QStringLiteral(
@@ -369,11 +398,12 @@ QWidget *StationDetailPage::makePileCard(const Pile &p)
         .arg(stateColor));
 
     const bool idle = (p.state == QStringLiteral("空闲"));
-    auto *btn = new QPushButton(idle ? QStringLiteral("预约充电") : QStringLiteral("已占用"), card);
+    auto *btn = new QPushButton(mine ? QStringLiteral("充电中")
+                                     : (idle ? QStringLiteral("预约充电") : QStringLiteral("已占用")), card);
     btn->setObjectName(QStringLiteral("ghostButton"));
     btn->setFixedWidth(80);
-    btn->setEnabled(idle);
-    if (idle) {
+    btn->setEnabled(idle && !mine);
+    if (idle && !mine) {
         connect(btn, &QPushButton::clicked, this, [this, p] { startCharging(p); });
     }
 
@@ -389,7 +419,10 @@ void StationDetailPage::startCharging(const Pile &pile)
         return;
     m_pendingPileCode = pile.code;
     m_pendingPower = pile.powerKw;
+    m_myPileCode = pile.code;   // 立即标记，桩卡片瞬间切换为「充电中」（乐观 UI）
+    rebuildPiles();
     if (!m_session || !m_session->startCharge(m_phone, pile.code)) {
+        releaseMyPile();        // 请求未发出，回滚为「预约充电」
         QMessageBox::warning(this, QStringLiteral("无法开始充电"),
                              QStringLiteral("请连接服务器并登录，或等待上一请求确认。"));
         return;
@@ -406,6 +439,7 @@ void StationDetailPage::endCharging()
     m_timer->stop();
     m_charging = false;
     m_phase = Phase::SettlementFailed;
+    releaseMyPile();   // 结束充电：桩标识立即还原为「预约充电」
     if (!m_session || !m_session->reportOrder(QString::number(m_orderId), m_activePile,
                                               m_kwh, m_kwh * m_serverUnitPrice)) {
         m_chargingPile->setText(QStringLiteral("尚未确认结算，请连接服务器后重试"));
@@ -432,6 +466,11 @@ bool StationDetailPage::restoreOrder(const QJsonObject &order)
     m_hasStation = true;
     m_station = Station{};
     m_station.id = order.value("station_id").toInt();
+    // 回填站的地理信息（坐标/名称/地址），保证充电后「导航」与静态地图仍可用
+    m_station.latitude  = order.value("latitude").toDouble();
+    m_station.longitude = order.value("longitude").toDouble();
+    m_station.name      = order.value("station_name").toString();
+    m_station.address   = order.value("address").toString();
     m_activePile = order.value("pile_code").toString();
     m_activePower = order.value("power_kw").toDouble();
     m_serverUnitPrice = order.value("unit_price").toDouble();
@@ -445,6 +484,7 @@ bool StationDetailPage::restoreOrder(const QJsonObject &order)
     m_elapsedSec = qMax<qint64>(0, started.secsTo(QDateTime::currentDateTime()));
     m_kwh = m_activePower * m_elapsedSec / 3600.0;
     m_nameLabel->setText(order.value("station_name").toString());
+    m_addrLabel->setText(order.value("address").toString());
     m_chargingPile->setText(QStringLiteral("您有未完成的充电订单 #%1，请先结算（按时长模拟电量）").arg(id));
     m_timeLabel->setText(formatDuration(m_elapsedSec));
     m_kwhLabel->setText(QStringLiteral("已充 %1 kWh").arg(m_kwh, 0, 'f', 2));
@@ -467,6 +507,7 @@ void StationDetailPage::clearOrder()
     m_charging = false;
     m_hasStation = false;
     m_kwh = 0;
+    m_myPileCode.clear();
     resetChargingView();
     m_endBtn->setEnabled(false);
 }

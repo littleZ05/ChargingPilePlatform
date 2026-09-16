@@ -57,6 +57,8 @@ private:
     void     resetChargingView();
     void     rebuildPiles();
     QWidget *makePileCard(const Pile &pile);
+    /** 释放"我的占用桩"标记：该桩本地状态还原为「空闲」，桩卡片即时刷新 */
+    void     releaseMyPile();
 
     enum class Phase { Idle, Starting, Charging, Settling, SettlementFailed, Completed };
     Phase m_phase = Phase::Idle;
@@ -67,6 +69,7 @@ private:
     int     m_elapsedSec = 0;
     double  m_kwh        = 0.0;
     QString m_activePile;
+    QString m_myPileCode;              // 当前"我的"占用桩（点预约→结束期间），用于桩卡片即时高亮
     double  m_activePower = 0.0;
     userclient::PcServerSession *m_session = nullptr;
     QString m_pendingOrderNo;

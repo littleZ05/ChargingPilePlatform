@@ -40,6 +40,9 @@ QFrame#card {
     border: 1px solid #1f2a4d;
     border-radius: 8px;
 }
+QFrame#card[mine="true"] {
+    border: 1px solid #0ea5e9;
+}
 
 /* ---------- 按钮 ---------- */
 QPushButton#primaryButton {

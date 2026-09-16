@@ -87,7 +87,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this](int code, const QString &, const QString &,
                          const QString &nickname, double balance, bool created) {
                 if (code == 0) {
-                    m_root->setCurrentIndex(1);
                     m_profilePage->setUserInfo(nickname, balance);
                     statusBar()->showMessage(
                         created ? QStringLiteral("新用户已自动注册并登录")
@@ -188,6 +187,7 @@ void MainWindow::showMain(const QString &phone)
     } else {
         m_pendingLoginPhone = phone;
     }
+    m_root->setCurrentIndex(1);   // 先切到主界面（乐观 UI），服务器回执再刷新昵称/余额
     showTab(0);
     m_navGroup->button(0)->setChecked(true);
 }

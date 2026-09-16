@@ -52,7 +52,8 @@ QJsonObject orderObject(QSqlDatabase db, int userId, int orderId)
 {
     auto q = query(db, QStringLiteral(
         "SELECT o.id,o.pile_id,o.station_id,p.code,p.power_kw,o.start_time,"
-        "o.kwh,o.price,o.amount,o.state,s.name FROM orders o "
+        "o.kwh,o.price,o.amount,o.state,s.name,s.latitude,s.longitude,s.address "
+        "FROM orders o "
         "JOIN piles p ON p.id=o.pile_id JOIN stations s ON s.id=o.station_id "
         "WHERE o.id=? AND o.user_id=?"), {orderId, userId});
     require(q.next(), 404, QStringLiteral("订单不存在或不属于当前用户"));
@@ -61,7 +62,10 @@ QJsonObject orderObject(QSqlDatabase db, int userId, int orderId)
             {"power_kw", q.value(4).toDouble()}, {"start_time", q.value(5).toString()},
             {"kwh", q.value(6).toDouble()}, {"unit_price", q.value(7).toDouble()},
             {"amount", q.value(8).toDouble()}, {"state", q.value(9).toInt()},
-            {"station_name", q.value(10).toString()}};
+            {"station_name", q.value(10).toString()},
+            {"latitude", q.value(11).toDouble()},
+            {"longitude", q.value(12).toDouble()},
+            {"address", q.value(13).toString()}};
 }
 
 QJsonObject profile(QSqlDatabase db, int userId)
