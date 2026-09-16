@@ -10,7 +10,7 @@
 # ============================================================
 set -u
 
-REPO="/home/bit/桌面/dongruan_ws/ChargingPilePlatform"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$REPO/src"
 SEED=1
 NEED_MAP=1
@@ -18,6 +18,12 @@ for a in "$@"; do
   [ "$a" = "--no-seed" ] && SEED=0
   [ "$a" = "--no-map" ] && NEED_MAP=0
 done
+
+# 若未手动 export TENCENT_MAP_KEY，则从脚本同目录的 .tencent_map_key 自动读取
+if [ -z "${TENCENT_MAP_KEY:-}" ] && [ -f "$(dirname "$0")/.tencent_map_key" ]; then
+  export TENCENT_MAP_KEY="$(cat "$(dirname "$0")/.tencent_map_key")"
+  echo "  已从 tools/.tencent_map_key 读取地图 Key"
+fi
 
 echo "== 0/6 环境检查 =="
 env -u LD_PRELOAD git -C "$REPO" pull --ff-only 2>&1 | tail -1

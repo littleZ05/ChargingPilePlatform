@@ -7,7 +7,7 @@
 # ============================================================
 set -u
 
-REPO="/home/bit/桌面/dongruan_ws/ChargingPilePlatform"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$REPO/src"
 
 echo "== 0/6 拉取并构建最新代码 =="
