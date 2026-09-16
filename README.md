@@ -2,6 +2,10 @@
 
 Qt 6 用户端与管理服务端、SQLite、TCP、C++负荷预测和ECharts大屏组成的课程项目。维护账号 littleZ05，组长统筹本轮重构。
 
+## 只想打开窗口点按验收
+
+双击桌面的 **充电桩点按验收**，或运行 `./tools/acceptance_gui.sh`。向导会打开实际程序，逐项讲解“怎么点、看什么、说明什么”。详见[点按验收手册](docs/点按验收手册.md)。桌面快捷方式可用 `python3 tools/install_acceptance_shortcut.py` 安装。
+
 ## 使用与验证
 
 ```bash
