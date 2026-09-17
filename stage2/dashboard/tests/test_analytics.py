@@ -20,8 +20,10 @@ class AnalyticsTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root/'dwd').mkdir()
-        session = dict(station_id='001',facility_type='4',platform='ios',weekday='Mon',start_hour='11',
-                       kwh='0.1',duration_hours='1',fee_original='0',quality_flags='calendar_year_unverified',
+        session = dict(station_id='001',facility_type='4',facility_label='未知编码4',platform='ios',
+                       weekday='Mon',start_hour='11',kwh='0.1',duration_hours='1',fee_original='0',
+                       weekend='0',time_period='peak',estimated_fee='0.15',
+                       quality_flags='calendar_year_unverified',
                        time_of_day_usable='1',weekday_usable='1',user_id='must-not-leak')
         data = {'sessions': [session,dict(session,kwh='0',platform='android',duration_hours='30'),
                              dict(session,station_id='002',kwh='0.2',weekday='Tue')],

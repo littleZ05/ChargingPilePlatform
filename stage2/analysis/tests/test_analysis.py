@@ -63,15 +63,18 @@ class AnalysisTest(unittest.TestCase):
         database = self.root / 'warehouse.db'
         connection = sqlite3.connect(database)
         connection.execute('create table dwd_sessions (station_id text, facility_type text,'
-                           ' platform text, weekday text, start_hour integer, kwh text,'
-                           ' duration_hours text, quality_flags text, time_of_day_usable text,'
-                           ' weekday_usable text)')
+                           ' facility_label text, platform text, weekday text, start_hour integer, kwh text,'
+                           ' duration_hours text, weekend text, time_period text, estimated_fee text,'
+                           ' quality_flags text, time_of_day_usable text, weekday_usable text)')
         rows = []
         for index in range(30):
-            rows.append((f'00{index % 3}', '4', 'ios' if index % 2 else 'android',
-                         analysis.__dict__ and ['Mon', 'Tue', 'Wed'][index % 3], 8 + index % 4,
-                         str(2.0 + index % 5), str(1.0 + index % 3), '', '1', '1'))
-        connection.executemany('insert into dwd_sessions values (?,?,?,?,?,?,?,?,?,?)', rows)
+            hour = 8 + index % 4
+            weekday = ['Mon', 'Tue', 'Wed'][index % 3]
+            period = 'peak' if hour in (8, 9, 10, 11) else 'normal'
+            rows.append((f'00{index % 3}', '4', '未知编码4', 'ios' if index % 2 else 'android',
+                         weekday, hour, str(2.0 + index % 5), str(1.0 + index % 3),
+                         '1' if weekday in ('Sat', 'Sun') else '0', period, '0.0', '', '1', '1'))
+        connection.executemany('insert into dwd_sessions values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', rows)
         connection.execute('create table ingest_business_orders (id integer)')
         connection.execute('insert into ingest_business_orders values (1),(2)')
         connection.commit()

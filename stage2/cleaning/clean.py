@@ -13,6 +13,19 @@ from pathlib import Path
 
 FILES = {'stations': 'nvv2t_md_end.csv', 'sessions': 'nvv2t.csv', 'battery': 'dsv13r2.csv'}
 MISSING = {'', 'null', 'none', 'nan', 'n/a'}
+# 老师口径的码表假设：1=直流 / 2=交流 / 3=直交流一体；数据集另有编码 4，无对应标签，保留原编码并标注待核。
+FACILITY_LABELS = {'1': '直流', '2': '交流', '3': '直交流一体'}
+# 峰谷分时电价（老师口径，单位 元/kWh）：高峰 1.5 / 平时 1.0 / 低谷 0.7（老师给 0.3–0.7，取上限作单一确定值）。
+TIME_PERIOD_TARIFF = {'peak': Decimal('1.5'), 'normal': Decimal('1.0'), 'off_peak': Decimal('0.7')}
+
+
+def time_period(hour):
+    """峰谷时段划分（老师口径）：高峰 8–11 与 18–21，平时 12–17，低谷 0–7 与 22–23。"""
+    if hour in (8, 9, 10, 11, 18, 19, 20, 21):
+        return 'peak'
+    if 12 <= hour <= 17:
+        return 'normal'
+    return 'off_peak'
 
 
 def normalize(value):
@@ -116,8 +129,8 @@ def run(source, output):
                 raise ValueError('missing station identifiers')
             updated = datetime.strptime(row['update_time'], '%Y/%m/%d').strftime('%Y-%m-%d')
             stations.append({**row, 'device_count': int(count), 'update_time': updated,
-                             'facility_label': '原始设施编码' + row['facilityType'],
-                             'geography_status': 'provided_metadata_not_verified', 'quality_flags': 'facility_dictionary_unverified'})
+                             'facility_label': FACILITY_LABELS.get(row['facilityType'], '未知编码' + row['facilityType']),
+                             'geography_status': 'provided_metadata_not_verified', 'quality_flags': 'facility_dictionary_assumed'})
         except ValueError as error:
             rejected['stations'].append(dict(source_row=row['source_row'], reason=str(error), raw_json=json.dumps(row, ensure_ascii=False)))
             event('stations', row['source_row'], 'R03', 'quarantine', str(error))
@@ -161,7 +174,9 @@ def run(source, output):
                 raise ValueError('missing_station_metadata')
             if any(row[k] != station[k] for k in ['locationId', 'facilityType']):
                 raise ValueError('station_metadata_conflict')
-            # Retain raw monetary values; no invented tariff or paid-revenue claim.
+            # 保留原始费用字段（币种与语义未核实）；估算电费另按峰谷模型口径计算并明确标注，不与原始收费混同。
+            period = time_period(int(row['startTime'])) if 'hour_mismatch' not in flags else ''
+            est_fee = (kwh * TIME_PERIOD_TARIFF[period]).quantize(Decimal('.01')) if period in TIME_PERIOD_TARIFF else None
             cleaned = dict(source_row=row['source_row'], session_id=row['sessionId'], user_id=row['userId'],
                 station_id=row['stationId'], location_id=row['locationId'], facility_type=row['facilityType'],
                 facility_label=station['facility_label'], station_name=station['station_name'], address=station['address'],
@@ -171,10 +186,11 @@ def run(source, output):
                 calendar_date='' if 'calendar_year_unverified' in flags else start.strftime('%Y-%m-%d'), timezone='unknown',
                 start_hour=int(row['startTime']), end_hour=int(row['endTime']), weekday=row['weekday'],
                 weekday_index=weekday, weekend=int(weekday >= 5), duration_hours=numeric(row['chargeTimeHrs']),
+                time_period=period, estimated_fee=format(est_fee, 'f') if est_fee is not None else '',
                 platform=row['platform'].lower(), manager_vehicle=row['managerVehicle'],
                 positive_energy=int(kwh > 0), time_of_day_usable=int('hour_mismatch' not in flags),
                 weekday_usable=int('weekday_onehot_mismatch' not in flags),
-                quality_flags=';'.join(flags + ['facility_dictionary_unverified', 'currency_unverified']))
+                quality_flags=';'.join(flags + ['facility_dictionary_assumed', 'currency_unverified']))
             sessions.append(cleaned)
             for flag in flags:
                 event('sessions', row['source_row'], 'R04', 'retain_flag', flag)
@@ -219,12 +235,14 @@ def run(source, output):
         quality[name] = dict(input=profiles[name]['rows'], retained=len(rows), quarantined=len(rejected[name]))
         assert quality[name]['input'] == len(rows) + len(rejected[name])
 
-    for dimension in ['station_id', 'facility_type', 'start_hour', 'weekday', 'platform']:
+    for dimension in ['station_id', 'facility_type', 'start_hour', 'weekday', 'platform', 'time_period']:
         groups = defaultdict(list)
         for row in sessions:
             if dimension == 'start_hour' and not row['time_of_day_usable']:
                 continue
             if dimension == 'weekday' and not row['weekday_usable']:
+                continue
+            if dimension == 'time_period' and not row['time_period']:
                 continue
             groups[str(row[dimension])].append(row)
         aggregates = []
@@ -235,6 +253,7 @@ def run(source, output):
                 total_kwh=str(sum((number(r['kwh']) for r in members), Decimal(0))),
                 source_fee_total_unverified=str(sum((number(r['fee_original']) for r in members), Decimal(0))),
                 zero_fee_count=sum(number(r['fee_original']) == 0 for r in members),
+                estimated_fee_total_model=str(sum((number(r['estimated_fee']) for r in members if r['estimated_fee']), Decimal(0))),
                 duration_hours_total=str(sum((number(r['duration_hours']) for r in members), Decimal(0)))))
         save_csv(output/'ads'/f'by_{dimension}.csv', aggregates)
         assert sum(r['session_count'] for r in aggregates) == sum(len(g) for g in groups.values())
@@ -244,13 +263,14 @@ def run(source, output):
     (output/'audit/profile_before.json').write_text(json.dumps(profiles, ensure_ascii=False, indent=2)+'\n')
     for filename, digest in raw_hashes.items():
         assert hashlib.sha256((source/filename).read_bytes()).hexdigest() == digest
-    manifest = dict(rule_version='1.0', input_sha256=raw_hashes, reconciliation=quality,
+    manifest = dict(rule_version='1.1', input_sha256=raw_hashes, reconciliation=quality,
                     total_kwh=str(sum((number(r['kwh']) for r in sessions), Decimal(0))),
                     fee_total_source_unverified=str(sum((number(r['fee_original']) for r in sessions), Decimal(0))),
+                    fee_total_estimated_model=str(sum((number(r['estimated_fee']) for r in sessions if r['estimated_fee']), Decimal(0))),
                     output_sha256={str(p.relative_to(output)): hashlib.sha256(p.read_bytes()).hexdigest()
                                    for p in sorted(output.rglob('*')) if p.is_file()})
     (output/'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n')
-    lines = ['# 数据清洗质量报告', '', '规则版本：1.0。原始数据未修改；没有估算收费或推测修复年份。', '',
+    lines = ['# 数据清洗质量报告', '', '规则版本：1.1。原始数据未修改；不推测修复年份。', '',
              '|数据集|输入|保留|隔离|','|---|---:|---:|---:|']
     lines += [f'|{k}|{v["input"]}|{v["retained"]}|{v["quarantined"]}|' for k,v in quality.items()]
     lines += ['', '## 六维质量评估', '',
@@ -263,8 +283,10 @@ def run(source, output):
               '', '## 逐规则影响数量', '', '|表|动作|原因|数量|','|---|---|---|---:|']
     lines += [f'|{t}|{a}|{d}|{n}|' for (t,a,d),n in sorted(counts.items())]
     lines += ['', '## 可用于第二阶段大屏', '',
-              'ads按站点、设施原始编码、开始小时、星期、平台汇总。session_count是会话次数，不是桩数；零电量仍计入会话次数，另有正电量次数。',
+              'ads按站点、设施类型（含码表标签）、开始小时、星期、平台、峰谷时段汇总。session_count是会话次数，不是桩数；零电量仍计入会话次数，另有正电量次数。',
               f'保留会话电量总计 {manifest["total_kwh"]} kWh；原字段费用总计 {manifest["fee_total_source_unverified"]}（币种与收费语义待核，不称真实营收）。',
+              f'估算电费（峰谷模型口径，高峰1.5/平时1.0/低谷0.7元×kWh）总计 {manifest["fee_total_estimated_model"]}，仅为教学口径，不与原始收费字段混同、不称真实营收。',
+              '设施类型按老师码表映射为直流(1)/交流(2)/直交流一体(3)，编码4无对应标签保留原编码；映射为码表假设，待核。',
               '电池明细可做SOC、电压、电流、温度分布及关联分析。瞬时功率为电压×电流绝对值/1000，不是累计电量；没有采样间隔，不积分求能量。',
               '', '## 遗留与使用限制', '',
               '不将0014/0015自动改为2014/2015：加2000年后的星期一致并不能证明真实年份。calendar_date为空，原值保留。',

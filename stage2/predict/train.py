@@ -118,9 +118,13 @@ def metrics(actual, predicted):
     mae = sum(abs(e) for e in errors) / len(errors)
     rmse = math.sqrt(sum(e * e for e in errors) / len(errors))
     mean_actual = sum(a for a, _ in pairs) / len(pairs)
+    ss_res = sum(e * e for e in errors)
+    ss_tot = sum((a - mean_actual) ** 2 for a, _ in pairs)
+    r_squared = 1 - ss_res / ss_tot if ss_tot else None
     return dict(samples=len(pairs), mae=round(mae, 4), rmse=round(rmse, 4),
                 mean_actual=round(mean_actual, 4),
-                relative_error=round(mae / mean_actual, 4) if mean_actual else None)
+                relative_error=round(mae / mean_actual, 4) if mean_actual else None,
+                r_squared=round(r_squared, 4) if r_squared is not None else None)
 
 
 def evaluate(observations, method):
@@ -175,11 +179,14 @@ def build_report(model, path):
              f"训练单元 {model['source']['cells']} 个（7 天 × 24 小时）；"
              f"会话样本 {model['source']['sessions']}。", '',
              '## 交叉验证（留一星期，7 折）', '',
-             '| 方法 | 样本 | MAE | RMSE | 实际均值 | 相对误差 |', '|---|---:|---:|---:|---:|---:|',
+             '| 方法 | 样本 | MAE | RMSE | 实际均值 | 相对误差 | R² |', '|---|---:|---:|---:|---:|---:|---:|',
              f"| 季节基线 | {seasonal['samples']} | {seasonal['mae']} | {seasonal['rmse']} "
-             f"| {seasonal['mean_actual']} | {seasonal['relative_error']} |",
+             f"| {seasonal['mean_actual']} | {seasonal['relative_error']} | {seasonal['r_squared']} |",
              f"| 线性回归 | {linear['samples']} | {linear['mae']} | {linear['rmse']} "
-             f"| {linear['mean_actual']} | {linear['relative_error']} |", '',
+             f"| {linear['mean_actual']} | {linear['relative_error']} | {linear['r_squared']} |",
+             '',
+             '说明：预测目标为连续值（小时会话量），采用回归指标 MAE/RMSE/R²/相对误差；'
+             '「准确率」是分类指标，此处不适用。', '',
              '## 小时画像（平均会话数）', '',
              '| 小时 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |',
              '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']

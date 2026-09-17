@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from decimal import Decimal
 from pathlib import Path
 
-FILTERS = {'station_id', 'facility_type', 'platform', 'weekday', 'energy'}
+FILTERS = {'station_id', 'facility_type', 'platform', 'weekday', 'time_period', 'energy'}
 DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 
@@ -25,6 +25,7 @@ def summarize(rows):
                 mean_duration_hours=str((hours / count).quantize(Decimal('.01'))) if count else None,
                 zero_fee=sum(amount(r['fee_original']) == 0 for r in rows),
                 source_fee_unverified=str(sum((amount(r['fee_original']) for r in rows), Decimal(0))),
+                estimated_fee_model=str(sum((amount(r['estimated_fee']) for r in rows if r.get('estimated_fee')), Decimal(0))),
                 active_stations=len({r['station_id'] for r in rows}))
 
 
@@ -51,6 +52,8 @@ class Analytics:
                         for key in FILTERS - {'energy'}}
         self.options['weekday'] = [d for d in DAYS if d in self.options['weekday']]
         self.options['energy'] = ['all', 'positive', 'zero']
+        self.facility_labels = {r['facility_type']: r['facility_label'] for r in self.sessions}
+        self.period_order = ['peak', 'normal', 'off_peak']
 
     def overview(self, filters):
         if set(filters) - FILTERS:
@@ -66,20 +69,31 @@ class Analytics:
             else:
                 rows = [r for r in rows if r[key] == value]
         dimensions = {}
-        for field in ['station_id', 'facility_type', 'platform', 'weekday', 'start_hour']:
+        for field in ['station_id', 'facility_type', 'platform', 'weekday', 'start_hour', 'time_period']:
             groups = defaultdict(list)
             for row in rows:
                 if field == 'start_hour' and row['time_of_day_usable'] != '1':
                     continue
                 if field == 'weekday' and row['weekday_usable'] != '1':
                     continue
+                if field == 'time_period' and not row['time_period']:
+                    continue
                 groups[row[field]].append(row)
             buckets = []
-            keys = [str(i) for i in range(24)] if field == 'start_hour' else DAYS if field == 'weekday' else sorted(groups)
+            if field == 'start_hour':
+                keys = [str(i) for i in range(24)]
+            elif field == 'weekday':
+                keys = DAYS
+            elif field == 'time_period':
+                keys = [p for p in self.period_order if p in groups]
+            else:
+                keys = sorted(groups)
             for key in keys:
                 label = key
                 if field == 'station_id':
                     label = self.stations.get(key, {}).get('station_name', key)
+                elif field == 'facility_type':
+                    label = self.facility_labels.get(key, key)
                 buckets.append(dict(key=key, label=label, **summarize(groups[key])))
             if field == 'station_id':
                 buckets.sort(key=lambda r: (-r['sessions'], r['key']))
@@ -91,17 +105,35 @@ class Analytics:
                               for label, low, high in durations]
         flags = Counter(flag for row in rows for flag in row['quality_flags'].split(';') if flag)
         return dict(version=self.version, filters=selected, summary=summarize(rows), dimensions=dimensions,
+                    day_type=self.day_type(rows),
                     duration_histogram=duration_histogram, quality=dict(flags),
                     coverage=dict(all_sessions=len(self.sessions), selected_sessions=len(rows),
                                   source_stations=len(self.stations), battery_records=len(self.battery)),
                     notes=['会话数不是桩数；正电量不代表已支付。',
                            '小时与星期来自已校验源字段，年份不可信，不发布真实日期趋势。',
                            '原费用币种与含义未核实，不作营收或补算收入。',
+                           '估算电费为峰谷模型口径（高峰1.5/平时1.0/低谷0.7元×kWh），非真实营收。',
                            '电池样本不与会话ID关联，不随会话筛选变化。'])
 
     def metadata(self):
         return dict(version=self.version, options=self.options,
+                    facility_labels=self.facility_labels,
                     stations=[dict(id=key, name=row['station_name']) for key, row in self.stations.items()])
+
+    def day_type(self, rows):
+        """工作日 vs 周末对比（对当前筛选结果），按日均归一，避免总量直接误导。"""
+        groups = {'weekday': [], 'weekend': []}
+        for row in rows:
+            groups['weekend' if str(row.get('weekend')) in ('1', 'True', 'true') else 'weekday'].append(row)
+        out = {}
+        for key, members in groups.items():
+            energy = sum((amount(r['kwh']) for r in members), Decimal(0))
+            days = 5 if key == 'weekday' else 2
+            out[key] = dict(sessions=len(members), days=days, total_kwh=str(energy),
+                            per_day_sessions=round(len(members) / days, 2),
+                            per_day_kwh=str((energy / days).quantize(Decimal('.01'))) if energy else '0',
+                            avg_kwh=str((energy / len(members)).quantize(Decimal('.01'))) if members else None)
+        return out
 
     def report(self, kind, filters):
         """报表导出：按维度返回当前筛选下的聚合明细（CSV 由服务端拼装）。"""
