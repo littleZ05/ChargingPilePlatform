@@ -48,6 +48,10 @@ python3 "$STAGE2/predict/train.py" --db "$RUN/warehouse.db" \
 
 echo "== 6/6 大屏服务（Ctrl+C 结束）"
 echo "   启动命令：python3 stage2/dashboard/server.py --data $CLEANING --model $RUN/model.json"
+if [ ! -f "$STAGE2/dashboard/web/dist/index.html" ]; then
+  echo "   ⚠ 未找到前端构建产物，服务会拒绝启动。请先执行："
+  echo "     cd stage2/dashboard/web && npm install && npm run build"
+fi
 if [ "${START_DASHBOARD:-1}" = "1" ]; then
   exec python3 "$STAGE2/dashboard/server.py" --data "$CLEANING" --model "$RUN/model.json"
 fi
