@@ -67,8 +67,11 @@ class EvaluateTest(unittest.TestCase):
         rows = self.build_rows()
         evaluation = evaluate.compare(rows, min_train_days=5)
         self.assertIn(evaluation['best_baseline'], evaluate.baselines.METHODS)
-        self.assertEqual(len(evaluation['results']), 3)
-        best = min(result['metrics']['mae'] for result in evaluation['results'])
+        methods = [result['method'] for result in evaluation['results']]
+        self.assertEqual(methods[:3], evaluate.baselines.METHODS)   # 基线在前
+        self.assertIn('ridge', methods)                             # 模型在后
+        best = min(result['metrics']['mae'] for result in evaluation['results']
+                   if result['method'] in evaluate.baselines.METHODS)
         self.assertAlmostEqual(evaluation['best_baseline_mae'], best)
 
     def test_report_is_written(self):
@@ -79,6 +82,43 @@ class EvaluateTest(unittest.TestCase):
         self.assertIn('扩展窗口滚动前进', text)
         self.assertIn('按小时分层', text)
         self.assertIn('测试说明', text)
+
+    def test_selection_split_keeps_report_days_out_of_selection(self):
+        rows = self.build_rows(days=20)
+        results = [evaluate.walk_forward(rows, method, min_train_days=5)
+                   for method in evaluate.baselines.METHODS + evaluate.models.METHODS]
+        split = evaluate.selection_split(results, share=0.7)
+
+        self.assertEqual(split['selection_days'], 10)
+        self.assertEqual(split['report_days'], 5)
+        self.assertEqual(split['selection_days'] + split['report_days'], 15)   # 第 5..19 天受测
+        for result in results:
+            early = [record for record in result['predictions']
+                     if record['day_index'] < split['cut_day']]
+            expected = evaluate.metrics([r['actual'] for r in early],
+                                        [r['predicted'] for r in early])
+            self.assertEqual(split['selection'][result['method']], expected)
+        # 切分点之后的日子只出现在报告集
+        late = [record for record in results[0]['predictions']
+                if record['day_index'] >= split['cut_day']]
+        self.assertTrue(all(record['day_index'] >= split['cut_day'] for record in late))
+        self.assertGreater(late[0]['day_index'], split['cut_day'] - 1)
+
+    def test_selection_split_rejects_tiny_test_set(self):
+        rows = self.build_rows(days=6)
+        results = [evaluate.walk_forward(rows, 'global_mean', min_train_days=5)]
+        with self.assertRaises(ValueError):
+            evaluate.selection_split(results)
+
+    def test_pick_returns_none_when_nothing_is_scored(self):
+        self.assertIsNone(evaluate.pick({}, ['a', 'b']))
+        self.assertIsNone(evaluate.pick({'a': {'mae': None}}, ['a']))
+
+    def test_pick_chooses_lowest_metric(self):
+        split = {'a': {'mae': 3.0}, 'b': {'mae': 1.5}, 'c': {'mae': None}}
+        self.assertEqual(evaluate.pick(split, ['a', 'b', 'c']), 'b')
+        self.assertEqual(evaluate.pick(split, ['c', 'a']), 'a')
+        self.assertEqual(evaluate.pick(split, ['a', 'b'], key='mae'), 'b')
 
 
 if __name__ == '__main__':
