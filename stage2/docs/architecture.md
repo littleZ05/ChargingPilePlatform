@@ -37,7 +37,7 @@
 | 3 数据存储 | ODS/DWD/DWS/ADS 分层；HDFS/Hive/HBase 等 | `stage2/warehouse/load.py`：四层装载进 SQLite 数仓，并建模 DWS | `warehouse.db`（44 张表）、`数据字典.md` | HDFS 分区目录、Hive/ClickHouse 表、Iceberg 快照（manifest） |
 | 4 数据分析 | 离线+实时计算；统计/关联/聚类/分类/回归/时序 | `stage2/analysis/analysis.py`：描述统计、Pearson 相关、K-Means 聚类、最小二乘回归、季节性、IQR/3σ 异常；`query.py` 即席 SQL | `analysis.json`、`分析报告.md` | Spark SQL、MLlib；SQLite 即席查询对应 Presto/Impala |
 | 5 数据可视化 | ECharts/Grafana/Superset；多维报表与钻取 | `stage2/dashboard/`：**Vue3 + Vite + ECharts** 离线大屏，四个视图（总览/站点与报表/电池样本/数据来源与质量）、七维筛选联动（含峰谷时段）、CSV 导出；构建产物 `web/dist` 入库 | 大屏页面、`/api/report` 报表 | Vue3 + ECharts（本地打包，无 CDN） |
-| 6 数据预测 | 回归/分类/集成/深度学习/时序；模型管理 | `stage2/predict/`：相对时间轴 + 缺测掩码 + 三项基线（全局均值/季节 naive/四周移动平均）+ 扩展窗口滚动前进评估；滞后特征岭回归覆盖未来 1/6/24 小时的会话数与电量，方法选择只看前 70% 测试日、指标只报后 30%；单次充电分位数模型在重构中 | `model.json`、`model_v2.json`、`预测评估.md`、`预测评估_v2.md`、`/api/forecast` | 对应 sklearn/Spark MLlib 的最小可解释实现 |
+| 6 数据预测 | 回归/分类/集成/深度学习/时序；模型管理 | `stage2/predict/`：相对时间轴 + 缺测掩码 + 基线对照 + 滚动评估。负荷侧用滞后特征岭回归预测未来 1/6/24 小时的会话数与电量（方法选择只看前 70% 测试日、指标只报后 30%）；单次侧用分位数回归（pinball loss + IRLS）给时长/电量的 P10/P50/P90，按"每 30 天重训一次、用最近 90 天窗口"评估，并核对经验覆盖率 | `model.json`、`model_v2.json`、`预测评估.md`、`预测评估_v2.md`、`分位数评估.md`、`/api/forecast` | 对应 sklearn/Spark MLlib 的最小可解释实现 |
 | 7 业务应用 | 大屏、预警、API、微服务集成 | 大屏 + RESTful API（health/options/overview/battery/report/forecast）+ 自愈告警联动第一阶段平台 | API 文档 `api.md` | API 网关/微服务的单机等价 |
 
 ## 三、底层支撑体系的单机等价实现

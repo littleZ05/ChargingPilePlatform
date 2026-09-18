@@ -90,12 +90,20 @@ class TrainV2Test(unittest.TestCase):
         payload = json.dumps(self.model, ensure_ascii=False)
         self.assertIn('tasks', json.loads(payload))
 
+    def test_sessions_section_can_be_included_or_skipped(self):
+        self.assertIn('sessions', self.model)
+        section = self.model['sessions']
+        self.assertEqual(len(section['tasks']), 6)          # 2 目标 × 3 分位数
+        self.assertEqual(set(section['deployment']), {'duration_hours', 'kwh'})
+        without = train_v2.train(self.database, min_train_days=14, with_sessions=False)
+        self.assertNotIn('sessions', without)
+
     def test_report_is_written_without_informal_wording(self):
         path = self.root / '预测评估_v2.md'
         train_v2.build_report(self.model, path)
         text = path.read_text(encoding='utf-8')
         for section in ('# 第二阶段预测评估（v2）', '选定方法在报告集上的表现',
-                        '全部候选方法', '模型可解释性', '限制'):
+                        '全部候选方法', '模型可解释性', '单次充电分位数', '限制'):
             self.assertIn(section, text)
         self.assertIn(f'{int(train_v2.ADOPT_MARGIN * 100)}%', text)   # 采纳门槛写明
         self.assertNotIn('口径', text)

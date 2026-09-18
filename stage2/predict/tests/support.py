@@ -12,7 +12,8 @@ import timeline  # noqa: E402
 
 SCHEMA = ('create table dwd_sessions (created_raw text, weekday text, start_hour integer, '
           'kwh text, duration_hours text, station_id text, facility_label text, '
-          'time_period text, time_of_day_usable text, weekday_usable text)')
+          'time_period text, platform text, manager_vehicle text, '
+          'time_of_day_usable text, weekday_usable text)')
 
 DEFAULT_START = datetime.date(14, 11, 18)     # 源数据首日同款写法：年份字段不可信
 
@@ -30,12 +31,13 @@ def create_database(path, hourly_counts, start=DEFAULT_START, kwh_each=4.0,
         for hour, count in enumerate(counts):
             for _ in range(count):
                 rows.append([f'{day.isoformat()} {hour:02d}:15:00', timeline.weekday_name(day),
-                             hour, str(kwh_each), '2.0', 'S1', '直流', 'normal', '1', '1'])
+                             hour, str(kwh_each), '2.0', 'S1', '直流', 'normal',
+                             'ios', '0', '1', '1'])
     for row in rows[-corrupt_weekday_rows:] if corrupt_weekday_rows else []:
         row[1] = 'Mon' if row[1] != 'Mon' else 'Tue'
     for row in rows[-unusable_rows:] if unusable_rows else []:
-        row[8] = '0'
-    connection.executemany('insert into dwd_sessions values (?,?,?,?,?,?,?,?,?,?)', rows)
+        row[10] = '0'                      # time_of_day_usable 在新增两列之后
+    connection.executemany('insert into dwd_sessions values (?,?,?,?,?,?,?,?,?,?,?,?)', rows)
     connection.commit()
     connection.close()
     return path

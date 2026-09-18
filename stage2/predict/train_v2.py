@@ -20,6 +20,7 @@ import baselines
 import evaluate
 import features
 import models
+import sessions
 import timeline
 
 BASES = ['sessions', 'kwh']
@@ -72,14 +73,15 @@ def train_task(rows, base, horizon, min_train_days=28, alpha=models.DEFAULT_ALPH
                       folds=next(r for r in results if r['method'] == chosen)['folds']))
 
 
-def train(database, min_train_days=28, alpha=models.DEFAULT_ALPHA, share=SELECTION_SHARE):
+def train(database, min_train_days=28, alpha=models.DEFAULT_ALPHA, share=SELECTION_SHARE,
+          session_share=sessions.FIRST_SHARE, with_sessions=True):
     panel = timeline.build(database)
     rows = features.attach_lags(panel)
     tasks = []
     for base in BASES:
         for horizon in HORIZONS:
             tasks.append(train_task(rows, base, horizon, min_train_days, alpha, share))
-    return dict(
+    model = dict(
         version=datetime.now().strftime('%Y%m%d%H%M'),
         generated_at=datetime.now().astimezone().isoformat(timespec='seconds'),
         protocol=dict(
@@ -90,6 +92,9 @@ def train(database, min_train_days=28, alpha=models.DEFAULT_ALPHA, share=SELECTI
         note=('源年份字段不可信，时间轴由 created_raw 的月日构造（与 weekday 逐行自洽），'
               '对外只用相对天数描述，不声称真实日历日期。'),
         tasks=tasks)
+    if with_sessions:
+        model['sessions'] = sessions.train(database, session_share, alpha)
+    return model
 
 
 def build_report(model, path):
@@ -130,7 +135,11 @@ def build_report(model, path):
         for item in task['top_weights']:
             lines.append(f"| `{item['feature']}` | {item['weight']} |")
         lines.append('')
-    lines += ['## 四、限制', '',
+    lines.append('')
+    if model.get('sessions'):
+        lines.append(sessions.build_report(model['sessions']))
+        lines.append('')
+    lines += ['## 五、限制', '',
               f"- {model['note']}",
               '- 缺测日在训练与评估中一律排除，不做零值填充。',
               '- 方法选择与指标报告分属不同时段，但同属一份数据，仍属课程级评估。',
@@ -150,9 +159,12 @@ def main(argv=None):
     parser.add_argument('--report', help='Markdown 评估报告输出路径')
     parser.add_argument('--min-train-days', type=int, default=28)
     parser.add_argument('--alpha', type=float, default=models.DEFAULT_ALPHA)
+    parser.add_argument('--no-sessions', dest='with_sessions', action='store_false',
+                        help='跳过单次充电分位数（时长/电量）部分')
     args = parser.parse_args(argv)
 
-    model = train(args.db, args.min_train_days, args.alpha)
+    model = train(args.db, args.min_train_days, args.alpha,
+                  with_sessions=args.with_sessions)
     Path(args.out).write_text(json.dumps(model, ensure_ascii=False, indent=2) + '\n',
                               encoding='utf-8')
     if args.report:
@@ -163,7 +175,14 @@ def main(argv=None):
          'chosen_mae': task['report']['chosen']['mae'],
          'baseline': task['baseline_choice'],
          'baseline_mae': task['report']['best_baseline']['mae'],
-         'skill': task['skill_vs_best_baseline']} for task in model['tasks']]},
+         'skill': task['skill_vs_best_baseline']} for task in model['tasks']],
+        'session_tasks': [
+            {'target': task['target'], 'tau': task['tau'], 'chosen': task['chosen'],
+             'model_adopted': task['model_adopted'], 'pinball': task['pinball'],
+             'baseline': task['baseline_choice'], 'baseline_pinball': task['baseline_pinball'],
+             'coverage': task['coverage'],
+             'calibration_gap': task['calibration_gap'],
+             'skill': task['skill']} for task in model.get('sessions', {}).get('tasks', [])]},
         ensure_ascii=False))
     return 0
 
