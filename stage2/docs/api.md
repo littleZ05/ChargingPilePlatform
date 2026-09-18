@@ -1,6 +1,9 @@
 # 第二阶段接口文档（RESTful API）
 
-服务：`python3 stage2/dashboard/server.py --data <清洗结果目录> [--model <model.json>] [--port 8765]`
+服务：`python3 stage2/dashboard/server.py --data <清洗结果目录> [--model <model.json>] [--model-v2 <model_v2.json>] [--port 8765]`
+
+`--model-v2` 指向第二阶段机器学习重构后的模型产物（负荷 1/6/24 小时 + 单次分位数 + 站点画像）。
+两个参数可以同时给：`/api/forecast` 优先用 v2 产物，未加载 v2 时退回旧版单跨度模型。
 
 - 监听 `127.0.0.1`，不对外网暴露；只读，不写任何业务数据。
 - 统一响应体：`{"code": 0, "data": {...}}`；参数错误返回 400（`{"code": 400, "message": "..."}`），未知接口返回 404。
@@ -17,7 +20,10 @@
 | `GET /api/overview` | `station_id`、`facility_type`、`time_period`、`platform`、`weekday`、`energy`（all/positive/zero） | 交集筛选后的 KPI、七维聚合、时长分箱、质量标签、覆盖说明 |
 | `GET /api/battery` | 无 | 独立电池样本：SOC/电流/温度分布 + 匿名 SOC-电压散点（不受会话筛选影响） |
 | `GET /api/report` | `kind`（station_id/facility_type/time_period/platform/weekday/start_hour/day_type）+ 上述筛选 | 按维度导出当前筛选的 CSV 报表（UTF-8 BOM，可直接用 Excel 打开） |
-| `GET /api/forecast` | `weekday`（Mon–Sun）、`horizon`（1–24） | 小时级会话量/电量预测、最空闲时段推荐、模型评估指标（需 `--model`） |
+| `GET /api/forecast` | v2：`base`（sessions/kwh）、`horizon`（1/6/24）；旧版：`weekday`、`horizon`（1–24） | 未来一天的逐小时预测、上线的预测器与对照基线、报告集指标（v2 需 `--model-v2`） |
+| `GET /api/session-quantiles` | `target`（duration_hours/kwh）、`facility`、`period`、`hour`（0–23）、`platform`、`weekend`（0/1）、`station`（可选） | 单次充电时长/电量的 P10/P50/P90，附经验覆盖率与校准偏差 |
+| `GET /api/stations` | `limit`（1–105，默认 20） | 站点画像：聚类结果、繁忙度分档、Top 站点与分半一致率 |
+| `GET /api/model-options` | 无 | 单次分位数接口的合法取值（设施类型、峰谷时段、平台、分位档），供前端下拉框取用 |
 
 ## 字段定义
 
@@ -53,7 +59,25 @@ curl -s -o report-period.csv 'http://127.0.0.1:8765/api/report?kind=time_period'
 
 # 周二 24 小时预测
 curl -s 'http://127.0.0.1:8765/api/forecast?weekday=Tue&horizon=24'
+
+# v2：未来 24 小时的电量预测（含上线方法与指标）
+curl -s 'http://127.0.0.1:8765/api/forecast?base=kwh&horizon=24'
+
+# 直流站高峰时段 9 点的单次时长分位数
+curl -s 'http://127.0.0.1:8765/api/session-quantiles?target=duration_hours&facility=直流&period=peak&hour=9'
+
+# 站点画像与繁忙度（前 10 个站点）
+curl -s 'http://127.0.0.1:8765/api/stations?limit=10'
 ```
+
+## 预测类接口的取值说明
+
+- `hours[].predicted`：未来一天的逐小时预测值。`day_index` 是**相对天数**，源年份字段不可信，接口不声称真实日历日期。
+- `method`：该任务实际上线的预测器。基线胜出时如实返回基线（例如 `moving_average`），不假装所有格子都用模型。
+- `metrics`：报告集（未参与挑方法的后 30% 测试日）上的指标；`baseline_metrics` 是对照基线在同一时段的指标。
+- `quantiles`：键为 `0.1`/`0.5`/`0.9`；`coverage` 是测试期上"实际值不超过预测分位数"的比例，理想值等于该分位；
+  `calibration_gap` 是它与名义分位的偏差（绝对值）。偏差超过 0.05 说明这个分位数没校准好。
+- `stations.clusters[].profile`：7 维画像特征；`tiers.counts` 是繁忙度各档的站点数；`sparse` 是样本不足、未参与聚类的站点数。
 
 ## 与第一阶段的关系
 

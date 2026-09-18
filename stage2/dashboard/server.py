@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from analytics import Analytics, ContractError
+import model_api
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'predict'))
 from forecast import forecast  # noqa: E402
@@ -24,9 +25,10 @@ BUILD_HINT = '请先构建前端：cd stage2/dashboard/web && npm install && npm
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, analytics, forecast_model=None, **kwargs):
+    def __init__(self, *args, analytics, forecast_model=None, model_v2=None, **kwargs):
         self.analytics = analytics
         self.forecast_model = forecast_model
+        self.model_v2 = model_v2
         super().__init__(*args, **kwargs)
 
     def log_message(self, format, *args):  # 保持单行、便于排查
@@ -60,13 +62,28 @@ class Handler(SimpleHTTPRequestHandler):
             if url.path == '/api/overview':
                 data = self.analytics.overview(filters)
             elif url.path == '/api/forecast':
-                if not self.forecast_model:
-                    raise ValueError('未加载预测模型，请用 --model 指定 model.json')
-                weekday = filters.pop('weekday', None) or 'Mon'
-                horizon = int(filters.pop('horizon', 24))
-                if filters or horizon < 1 or horizon > 24:
-                    raise ValueError('预测参数无效：仅支持 weekday 与 1–24 的 horizon')
-                data = forecast(self.forecast_model, weekday, horizon)
+                if self.model_v2:
+                    data = model_api.forecast(self.model_v2, filters)
+                elif self.forecast_model:
+                    weekday = filters.pop('weekday', None) or 'Mon'
+                    horizon = int(filters.pop('horizon', 24))
+                    if filters or horizon < 1 or horizon > 24:
+                        raise ValueError('预测参数无效：仅支持 weekday 与 1–24 的 horizon')
+                    data = forecast(self.forecast_model, weekday, horizon)
+                else:
+                    raise ValueError('未加载预测模型，请用 --model-v2 指定 model_v2.json')
+            elif url.path == '/api/session-quantiles':
+                if not self.model_v2:
+                    raise ValueError('未加载第二版模型，请用 --model-v2 指定 model_v2.json')
+                data = model_api.session_quantiles(self.model_v2, filters)
+            elif url.path == '/api/stations':
+                if not self.model_v2:
+                    raise ValueError('未加载第二版模型，请用 --model-v2 指定 model_v2.json')
+                data = model_api.stations(self.model_v2, filters)
+            elif url.path == '/api/model-options' and not filters:
+                if not self.model_v2:
+                    raise ValueError('未加载第二版模型，请用 --model-v2 指定 model_v2.json')
+                data = model_api.model_options(self.model_v2)
             elif url.path == '/api/options' and not filters:
                 data = self.analytics.metadata()
             elif url.path == '/api/battery' and not filters:
@@ -92,7 +109,9 @@ class Handler(SimpleHTTPRequestHandler):
                 data = {'status': 'ok', 'version': self.analytics.version,
                         'rule_version': self.analytics.rule_version,
                         'sessions': len(self.analytics.sessions),
-                        'stations': len(self.analytics.stations)}
+                        'stations': len(self.analytics.stations),
+                        'model_version': (self.model_v2 or {}).get('version'),
+                        'forecast_ready': bool((self.model_v2 or {}).get('forecast'))}
             else:
                 self.send_error(404)
                 return
@@ -104,10 +123,12 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(503, {'code': 503, 'message': str(error)})
 
 
-def create_server(data, port=8765, model=None):
+def create_server(data, port=8765, model=None, model_v2=None):
     analytics = Analytics(data)                     # 校验失败会抛 ContractError，由调用方打印
     forecast_model = json.loads(Path(model).read_text(encoding='utf-8')) if model else None
-    handler = partial(Handler, analytics=analytics, forecast_model=forecast_model, directory=str(UI_DIR))
+    v2_model = json.loads(Path(model_v2).read_text(encoding='utf-8')) if model_v2 else None
+    handler = partial(Handler, analytics=analytics, forecast_model=forecast_model,
+                      model_v2=v2_model, directory=str(UI_DIR))
     server = ThreadingHTTPServer(('127.0.0.1', port), handler)
     server.analytics = analytics           # 供启动日志与测试读取，不改响应体
     return server
@@ -118,12 +139,15 @@ def main(argv=None):
     parser.add_argument('--data', required=True, help='已校验的清洗结果目录（含 manifest.json）')
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--model', help='预测模型 model.json 路径（可选，启用 /api/forecast）')
+    parser.add_argument('--model-v2', dest='model_v2',
+                        help='第二版模型 model_v2.json 路径（启用 1/6/24 小时负荷预测、'
+                             '单次分位数与站点画像）')
     args = parser.parse_args(argv)
     if not (UI_DIR / 'index.html').exists():
         print(f'未找到前端构建产物：{UI_DIR}\n{BUILD_HINT}', file=sys.stderr)
         return 2
     try:
-        server = create_server(args.data, args.port, args.model)
+        server = create_server(args.data, args.port, args.model, args.model_v2)
     except ContractError as error:
         print(f'数据契约校验失败，拒绝启动大屏：\n{error}', file=sys.stderr)
         return 2

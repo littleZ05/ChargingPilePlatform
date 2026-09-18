@@ -20,6 +20,7 @@ import baselines
 import evaluate
 import features
 import models
+import serving
 import sessions
 import stations
 import timeline
@@ -94,6 +95,11 @@ def train(database, min_train_days=28, alpha=models.DEFAULT_ALPHA, share=SELECTI
         note=('源年份字段不可信，时间轴由 created_raw 的月日构造（与 weekday 逐行自洽），'
               '对外只用相对天数描述，不声称真实日历日期。'),
         tasks=tasks)
+    try:
+        model['forecast'] = serving.next_day_forecast(panel, tasks)
+    except Exception as error:        # 预测是附加产物，缺它不应让整份模型作废
+        model['forecast'] = []
+        model['forecast_error'] = f'{type(error).__name__}: {error}'
     if with_sessions:
         model['sessions'] = sessions.train(database, session_share, alpha)
     if with_stations:

@@ -107,6 +107,18 @@ class TrainV2Test(unittest.TestCase):
         without = train_v2.train(self.database, min_train_days=14, with_stations=False)
         self.assertNotIn('stations', without)
 
+    def test_forecast_is_baked_for_every_task(self):
+        forecast = self.model.get('forecast')
+        self.assertTrue(forecast, self.model.get('forecast_error'))
+        combos = {(item['base'], item['horizon']) for item in forecast}
+        self.assertEqual(combos, {(base, hour) for base in train_v2.BASES
+                                  for hour in train_v2.HORIZONS})
+        for item in forecast:
+            self.assertEqual(len(item['hours']), 24)
+            self.assertTrue(item['method'])
+            self.assertTrue(all(point['predicted'] is None or point['predicted'] >= 0
+                                for point in item['hours']))
+
     def test_report_is_written_without_informal_wording(self):
         path = self.root / '预测评估_v2.md'
         train_v2.build_report(self.model, path)

@@ -45,16 +45,21 @@ python3 "$STAGE2/analysis/analysis.py" --db "$RUN/warehouse.db" \
 echo "== 5/6 数据预测（多跨度岭回归 + 基线对照，扩展窗口滚动前进）"
 python3 "$STAGE2/predict/train_v2.py" --db "$RUN/warehouse.db" \
   --out "$RUN/model_v2.json" --report "$RUN/预测评估_v2.md"
+echo "   预测结果落库（dws_day_hour / dws_station_features / ads_station_busyness / ads_forecast / ads_session_quantile）"
+python3 "$STAGE2/predict/publish.py" --db "$RUN/warehouse.db" --model "$RUN/model_v2.json" \
+  --dictionary "$RUN/数据字典.md"
 echo "   旧版单跨度模型（大屏仍在用，P4 切换后移除）"
 python3 "$STAGE2/predict/train.py" --db "$RUN/warehouse.db" \
   --out "$RUN/model.json" --report "$RUN/预测评估.md"
 
 echo "== 6/6 大屏服务（Ctrl+C 结束）"
-echo "   启动命令：python3 stage2/dashboard/server.py --data $CLEANING --model $RUN/model.json"
+echo "   启动命令：python3 stage2/dashboard/server.py --data $CLEANING \\"
+echo "             --model $RUN/model.json --model-v2 $RUN/model_v2.json"
 if [ ! -f "$STAGE2/dashboard/web/dist/index.html" ]; then
   echo "   ⚠ 未找到前端构建产物，服务会拒绝启动。请先执行："
   echo "     cd stage2/dashboard/web && npm install && npm run build"
 fi
 if [ "${START_DASHBOARD:-1}" = "1" ]; then
-  exec python3 "$STAGE2/dashboard/server.py" --data "$CLEANING" --model "$RUN/model.json"
+  exec python3 "$STAGE2/dashboard/server.py" --data "$CLEANING" \
+    --model "$RUN/model.json" --model-v2 "$RUN/model_v2.json"
 fi
