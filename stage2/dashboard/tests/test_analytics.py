@@ -179,6 +179,36 @@ class AnalyticsTest(unittest.TestCase):
         self.assertEqual(meta['options']['time_period'], ['peak', 'normal'])
         self.assertEqual(meta['total_kwh'], '0.3')
 
+    def test_station_hour_matrix_is_ranked_and_dense(self):
+        payload = self.analytics.station_hour({})
+        self.assertEqual(payload['hours'], list(range(24)))
+        self.assertEqual([row['station'] for row in payload['stations']], ['001', '002'])
+        self.assertEqual(len(payload['data']), 2 * 24)          # 行是站点、列是小时，空小时补 0
+        cells = {(hour, index): value for hour, index, value in payload['data']}
+        self.assertEqual(cells[(11, 0)], 1)
+        self.assertEqual(cells[(13, 0)], 1)
+        self.assertEqual(cells[(11, 1)], 1)
+        self.assertEqual(cells[(0, 0)], 0)
+        self.assertEqual(payload['max_sessions'], 1)
+        self.assertEqual(payload['sessions'], 3)
+        self.assertTrue(payload['stations'][0]['label'])
+        self.assertIn('开始小时可用', payload['notes'][0])
+
+    def test_station_hour_respects_filters_and_validates_limit(self):
+        top_one = self.analytics.station_hour({'limit': '1'})
+        self.assertEqual([row['station'] for row in top_one['stations']], ['001'])
+        self.assertEqual(len(top_one['data']), 24)
+        android_only = self.analytics.station_hour({'platform': 'android'})
+        self.assertEqual([row['station'] for row in android_only['stations']], ['001'])
+        self.assertEqual(android_only['sessions'], 1)
+        ios_only = self.analytics.station_hour({'platform': 'ios'})
+        self.assertEqual([row['station'] for row in ios_only['stations']], ['001', '002'])
+        self.assertEqual(ios_only['sessions'], 2)
+        for filters in ({'limit': '0'}, {'limit': '51'}, {'limit': 'x'},
+                        {'unknown': '1'}, {'platform': 'symbian'}):
+            with self.assertRaises(ValueError):
+                self.analytics.station_hour(dict(filters))
+
     def test_actual_http_filters_and_errors(self):
         server, thread = self.serve()
         try:
@@ -189,8 +219,12 @@ class AnalyticsTest(unittest.TestCase):
                 self.assertEqual(json.load(response)['data']['summary']['sessions'], 2)
             with urlopen(base + '/api/health') as response:
                 self.assertEqual(json.load(response)['data']['rule_version'], RULE_VERSION)
+            with urlopen(base + '/api/station-hour?limit=5') as response:
+                heat = json.load(response)['data']
+            self.assertEqual(len(heat['data']), len(heat['stations']) * 24)
             for suffix in ['/api/overview?energy=wrong', '/api/overview?platform=ios&platform=android',
-                           '/api/overview?time_period=off_peak']:
+                           '/api/overview?time_period=off_peak',
+                           '/api/station-hour?limit=0', '/api/station-hour?unknown=1']:
                 with self.assertRaises(HTTPError) as error:
                     urlopen(base + suffix)
                 self.assertEqual(error.exception.code, 400)

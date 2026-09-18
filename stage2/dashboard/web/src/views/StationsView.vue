@@ -1,10 +1,53 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { Overview } from '../api'
-import { reportUrl } from '../api'
+import { computed, ref, watch } from 'vue'
+import type { Overview, StationHeatmap } from '../api'
+import { api, reportUrl } from '../api'
+import type { EChartsOption } from '../charts'
+import ChartBox from '../components/ChartBox.vue'
 import { dec, int, percent } from '../format'
 
 const props = defineProps<{ data: Overview; filters: Record<string, string> }>()
+
+const AXIS = { axisLine: { lineStyle: { color: '#2a3960' } }, axisLabel: { color: '#8ea0c6' }, splitLine: { lineStyle: { color: '#17233f' } } }
+const TOOLTIP = { backgroundColor: '#0e1730', borderColor: '#2a3960', textStyle: { color: '#e6edf9' } }
+
+const heatmap = ref<StationHeatmap | null>(null)
+const heatError = ref('')
+
+async function loadHeatmap() {
+  try {
+    heatmap.value = await api<StationHeatmap>('station-hour', { ...props.filters, limit: '20' })
+    heatError.value = ''
+  } catch (reason) {
+    heatError.value = reason instanceof Error ? reason.message : String(reason)
+    heatmap.value = null
+  }
+}
+
+const heatLabels = computed(() => (heatmap.value?.stations ?? []).map((row) => row.label).reverse())
+const heatOption = computed<EChartsOption>(() => {
+  const payload = heatmap.value
+  const count = payload?.stations.length ?? 0
+  return {
+    grid: { left: 150, right: 24, top: 16, bottom: 64 },
+    tooltip: { ...TOOLTIP, formatter: (params: unknown) => {
+      const item = params as { value: [number, number, number] }
+      const [hour, index, value] = item.value
+      return `${heatLabels.value[index] || ''}<br/>${hour} 时：${value} 次会话`
+    } },
+    xAxis: { type: 'category', data: (payload?.hours ?? []).map((hour) => `${hour}`), name: '开始小时', nameTextStyle: { color: '#8ea0c6' }, ...AXIS },
+    yAxis: { type: 'category', data: heatLabels.value, ...AXIS },
+    visualMap: { min: 0, max: Math.max(1, payload?.max_sessions ?? 1), calculable: true,
+                 orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 12,
+                 textStyle: { color: '#8ea0c6' },
+                 inRange: { color: ['#17233f', '#1e5fa8', '#4da3ff', '#ffb454', '#ff6b6b'] } },
+    series: [{ type: 'heatmap', data: (payload?.data ?? []).map(
+      ([hour, index, value]) => [hour, count - 1 - index, value]),
+      emphasis: { itemStyle: { borderColor: '#e6edf9', borderWidth: 1 } } }],
+  }
+})
+
+watch(() => props.filters, () => { void loadHeatmap() }, { deep: true, immediate: true })
 
 type Field = 'sessions' | 'total_kwh' | 'estimated_fee_model' | 'mean_kwh' | 'zero_energy'
 const sortField = ref<Field>('sessions')
@@ -41,6 +84,17 @@ function sortBy(field: Field) {
 </script>
 
 <template>
+  <section class="card">
+    <h2>站点 × 小时热力图 <small>{{ heatmap ? `前 ${heatmap.stations.length} 个站点，${heatmap.sessions} 次会话` : '' }}</small></h2>
+    <div v-if="heatError" class="banner error">{{ heatError }}</div>
+    <ChartBox :option="heatOption" height="420px" :empty="!heatmap"
+              empty-text="正在加载站点 × 小时数据…" />
+    <p v-if="heatmap" class="footnote">
+      越红表示该站点在该小时开始的会话越多。站点按会话数取前 {{ heatmap.limit }} 个，
+      纵向从上到下是会话数由多到少；空格子是 0，不是缺数据。{{ heatmap.notes.join(' ') }}
+    </p>
+  </section>
+
   <section class="card">
     <h2>站点明细 <small>当前筛选下共 {{ int(rows.length) }} 个站点</small></h2>
     <div class="toolbar">

@@ -61,6 +61,8 @@ class Handler(SimpleHTTPRequestHandler):
             filters = {k: v[0] for k, v in params.items()}
             if url.path == '/api/overview':
                 data = self.analytics.overview(filters)
+            elif url.path == '/api/station-hour':
+                data = self.analytics.station_hour(filters)
             elif url.path == '/api/forecast':
                 if self.model_v2:
                     data = model_api.forecast(self.model_v2, filters)
