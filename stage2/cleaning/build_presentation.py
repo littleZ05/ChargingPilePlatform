@@ -16,7 +16,7 @@ def build(source, target):
             raise ValueError(f'Output modified after verification: {name}')
     if any(manifest.get('reconciliation', {}).get(key, {}).get('retained') != value
            for key, value in expected.items()) or manifest.get('total_kwh') != '19723.69':
-        raise ValueError('数据版本发生变化，请先更新并审核页面和PPT中的固定口径')
+        raise ValueError('数据版本发生变化，请先更新并审核页面和PPT中的固定数值与文案')
     def read(name):
         with (source/name).open(encoding='utf-8-sig', newline='') as stream:
             return list(csv.DictReader(stream))

@@ -81,6 +81,41 @@ class CleaningTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             clean.run(self.source, self.root / 'a')
 
+    def test_peak_period_tariff_and_estimated_fee_follow_contract(self):
+        """C5/C6/C7：时段边界、单价与估算电费按共享定义模块计算，不由本文件另定一份。"""
+        cases = {'0': ('off_peak', '0.7'), '7': ('off_peak', '0.7'), '8': ('peak', '1.5'),
+                 '11': ('peak', '1.5'), '12': ('normal', '1.0'), '17': ('normal', '1.0'),
+                 '18': ('peak', '1.5'), '21': ('peak', '1.5'), '22': ('off_peak', '0.7'),
+                 '23': ('off_peak', '0.7')}
+        sessions = []
+        for hour in cases:
+            # 23 点跨零点：结束小时回到 0，日期进一位
+            end_hour, end_date = (0, '0015-01-06') if hour == '23' else (int(hour) + 1, '0015-01-05')
+            sessions.append(dict(self.session, sessionId=f'{hour:0>4}', startTime=hour, endTime=str(end_hour),
+                                 kwhTotal='2', created=f'0015-01-05 {int(hour):02d}:00:00',
+                                 ended=f'{end_date} {end_hour:02d}:00:00'))
+        self.inputs(sessions)
+        output = self.root / 'out'
+        clean.run(self.source, output)
+        self.assertEqual(len(self.read(output, 'dwd/sessions.csv')), len(cases))
+        for row in self.read(output, 'dwd/sessions.csv'):
+            hour = int(row['start_hour'])
+            period, price = cases[str(hour)]
+            self.assertEqual(row['time_period'], period, f'{hour} 点时段')
+            self.assertEqual(row['unit_price'], price, f'{hour} 点单价')
+            self.assertEqual(clean.Decimal(row['estimated_fee']), clean.Decimal('2') * clean.Decimal(price))
+
+    def test_facility_label_table_and_unmapped_code(self):
+        """C5：1/2/3 有中文标签，其他编码保留原编码并标记待核，不猜语义。"""
+        self.inputs([dict(self.session, facilityType='1')])
+        clean.save_csv(self.source / clean.FILES['stations'], [dict(self.station, facilityType='1')])
+        output = self.root / 'out'
+        clean.run(self.source, output)
+        self.assertEqual(self.read(output, 'dwd/stations.csv')[0]['facility_label'], '直流')
+        self.assertEqual(self.read(output, 'dwd/sessions.csv')[0]['facility_label'], '直流')
+        session = self.read(output, 'dwd/sessions.csv')[0]
+        self.assertIn('facility_dictionary_assumed', session['quality_flags'])
+
 
 if __name__ == '__main__':
     unittest.main()
