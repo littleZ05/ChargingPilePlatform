@@ -9,7 +9,8 @@
 # ============================================================
 set -u
 
-REPO="/home/bit/桌面/dongruan_ws/ChargingPilePlatform"
+# 仓库根按脚本自身位置自动探测
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$REPO/src"
 OPEN_DOCS=0
 OPEN_SQLITE=0

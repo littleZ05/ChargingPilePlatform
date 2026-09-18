@@ -6,10 +6,10 @@
 #include <QVector>
 #include <QString>
 namespace userclient {
-enum class TravelMode { Driving, Walking };
 bool validCoordinates(double latitude, double longitude);
+// 路线规划仅保留驾车（2026-09-18 产品决定，移除步行模式）
 QUrl routePlanUrl(double fromLat, double fromLng, const QString &fromName,
-                  double toLat, double toLng, const QString &toName, TravelMode mode);
+                  double toLat, double toLng, const QString &toName);
 QVector<QPair<double,double>> decodeTencentPolyline(const QJsonArray &values);
 }
 #endif
