@@ -31,7 +31,7 @@ def create_database(path, hourly_counts, start=DEFAULT_START, kwh_each=4.0,
         for hour, count in enumerate(counts):
             for _ in range(count):
                 rows.append([f'{day.isoformat()} {hour:02d}:15:00', timeline.weekday_name(day),
-                             hour, str(kwh_each), '2.0', 'S1', '直流', 'normal',
+                             hour, str(kwh_each), '2.0', f'S{hour % 4 + 1}', '直流', 'normal',
                              'ios', '0', '1', '1'])
     for row in rows[-corrupt_weekday_rows:] if corrupt_weekday_rows else []:
         row[1] = 'Mon' if row[1] != 'Mon' else 'Tue'

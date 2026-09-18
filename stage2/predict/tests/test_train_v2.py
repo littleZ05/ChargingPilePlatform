@@ -98,12 +98,22 @@ class TrainV2Test(unittest.TestCase):
         without = train_v2.train(self.database, min_train_days=14, with_sessions=False)
         self.assertNotIn('sessions', without)
 
+    def test_stations_section_is_included_and_can_be_skipped(self):
+        section = self.model.get('stations')
+        self.assertIsNotNone(section)
+        self.assertEqual(section['stations'], section['clustered_stations']
+                         + len(section['sparse_stations']))
+        self.assertGreaterEqual(section['cluster_count'], 2)
+        without = train_v2.train(self.database, min_train_days=14, with_stations=False)
+        self.assertNotIn('stations', without)
+
     def test_report_is_written_without_informal_wording(self):
         path = self.root / '预测评估_v2.md'
         train_v2.build_report(self.model, path)
         text = path.read_text(encoding='utf-8')
         for section in ('# 第二阶段预测评估（v2）', '选定方法在报告集上的表现',
-                        '全部候选方法', '模型可解释性', '单次充电分位数', '限制'):
+                        '全部候选方法', '模型可解释性', '单次充电分位数',
+                        '站点画像聚类与繁忙度分档', '限制'):
             self.assertIn(section, text)
         self.assertIn(f'{int(train_v2.ADOPT_MARGIN * 100)}%', text)   # 采纳门槛写明
         self.assertNotIn('口径', text)
