@@ -11,6 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="${DATA:-/home/bit/vmware_share/大数据开发/06.清洗结果_20260916_v2}"
+SOURCE="${SOURCE:-/home/bit/vmware_share/大数据开发/04.数据集最终版}"
 RUN="${RUN:-$ROOT/build-stage2/run-demo}"
 MODEL="${MODEL:-$RUN/model.json}"
 BIN="${BIN:-$ROOT/build-stage2-tools/defense_demo}"
@@ -19,6 +20,18 @@ REPO_SERVER="$ROOT/stage2/dashboard/server.py"
 if [ ! -f "$MODEL" ]; then
   echo "== 生成演示用模型（$RUN）"
   START_DASHBOARD=0 CLEANING="$DATA" RUN="$RUN" bash "$ROOT/stage2/run_all.sh" >/dev/null
+fi
+
+# 大屏按 rule_version 2.0 的字段定义读取清洗产物（含时段与估算电费列）。
+# 共享目录里若仍是旧版本结果，就从原始数据集重新清洗一份 2.0 产物，不改动共享目录。
+if [ ! -f "$DATA/manifest.json" ] || ! grep -q '"rule_version": *"2.0"' "$DATA/manifest.json"; then
+  CLEAN2="$RUN/cleaning-v2"
+  [ -d "$CLEAN2" ] && [ ! -f "$CLEAN2/manifest.json" ] && rm -r "$CLEAN2"   # 清理上次中断的残留
+  if [ ! -f "$CLEAN2/manifest.json" ]; then
+    echo "== 共享清洗结果为旧版本，从原始数据集重新清洗出 rule_version 2.0 产物（$CLEAN2）"
+    python3 "$ROOT/stage2/cleaning/clean.py" --input "$SOURCE" --output "$CLEAN2" >/dev/null
+  fi
+  DATA="$CLEAN2"
 fi
 
 if [ ! -x "$BIN" ]; then

@@ -73,7 +73,7 @@ public:
             {"web", "⑦ 实时大屏 · 电池样本（独立分析）", "",
              "1594 条电池样本，不与会话 ID 关联，可做 SOC/电压/电流/温度分布",
              QStringLiteral("document.querySelector('[data-view=battery]').click()")},
-            {"web", "⑦ 实时大屏 · 数据质量与口径", "",
+            {"web", "⑦ 实时大屏 · 数据质量与数据来源", "",
              "标签可重叠、不能相加成异常率；费用非营收、年份不可信",
              QStringLiteral("document.querySelector('[data-view=quality]').click()")},
             {"image", "演示结束 · 谢谢各位老师", QString(), "Esc 退出（窗口可留在屏幕上讲解）", QString()},
@@ -82,10 +82,14 @@ public:
 
     bool start()
     {
-        if (!m_selftest)
+        if (!m_selftest) {
+            // 在应用层统一接管按键：大屏步骤用的是 QWebEngineView，网页会把空格/方向键吃掉，
+            // 只挂在窗口上的过滤器收不到这些按键。
+            qApp->installEventFilter(this);
             QTimer::singleShot(0, this, &Demo::showCurrent);
-        else
+        } else {
             QTimer::singleShot(0, this, &Demo::runSelfTest);
+        }
         return true;
     }
 
@@ -147,7 +151,6 @@ private:
         window->show();
         window->raise();
         window->activateWindow();
-        window->installEventFilter(this);
         m_windows.append(window);
         if (m_windows.size() > 1) {                      // 只保留当前窗口，形成"依次弹出"
             QWidget *previous = m_windows.at(m_windows.size() - 2);
@@ -157,7 +160,7 @@ private:
             }
         }
         if (m_autoSeconds > 0)
-            QTimer::singleShot(m_autoSeconds * 1000, this, &Demo::showCurrent);
+            QTimer::singleShot(m_autoSeconds * 1000, this, [this] { this->step(1); });
     }
 
 protected:
@@ -165,14 +168,27 @@ protected:
     {
         if (event->type() != QEvent::KeyPress)
             return QObject::eventFilter(object, event);
+        // 只处理落在演示窗口里的按键（窗口本体或它的子控件，包括大屏 WebEngine）。
+        QWidget *widget = qobject_cast<QWidget *>(object);
+        QWidget *window = widget ? widget->window() : QApplication::activeWindow();
+        bool belongsToDemo = false;
+        for (int i = 0; i < m_windows.size(); ++i) {
+            QWidget *candidate = m_windows.at(i).data();
+            if (candidate && candidate == window) {
+                belongsToDemo = true;
+                break;
+            }
+        }
+        if (!belongsToDemo)
+            return QObject::eventFilter(object, event);
         const int key = static_cast<QKeyEvent *>(event)->key();
         if (key == Qt::Key_Space || key == Qt::Key_Right || key == Qt::Key_Return
             || key == Qt::Key_Down || key == Qt::Key_PageDown)
-            showCurrent();
+            step(1);
         else if (key == Qt::Key_Left || key == Qt::Key_Backspace || key == Qt::Key_Up)
-            step(-2);
+            step(-1);
         else if (key == Qt::Key_R)
-            step(-1 - m_index);
+            step(-m_index);
         else if (key == Qt::Key_Escape || key == Qt::Key_Q)
             quit();
         else
@@ -183,7 +199,11 @@ protected:
 private:
     void step(int delta)
     {
-        m_index = qBound(0, m_index + delta, m_steps.size() - 1);
+        const int last = static_cast<int>(m_steps.size()) - 1;
+        const int next = qBound(0, m_index + delta, last);
+        if (next == m_index)
+            return;                          // 已在首屏/末屏：当前窗口保持不动
+        m_index = next;
         showCurrent();
     }
 
