@@ -269,6 +269,7 @@ def classification_payload(section, facility, period, hour, station=None, platfo
         model_adopted=section['model_adopted'], beats_on_decisions=section['beats_on_decisions'],
         ranking_not_worse=section['ranking_not_worse'],
         f1_advantage=section['f1_advantage'], skill=section['skill'],
+        f1_interval=section.get('f1_interval'),
         block_wins=section['block_wins'], block_total=section['block_total'],
         test_sessions=section['test_sessions'], positive_rate=section['fold_positive_rate'],
         decision_threshold=deployment['decision_threshold'],

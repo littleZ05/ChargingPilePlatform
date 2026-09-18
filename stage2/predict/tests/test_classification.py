@@ -48,6 +48,33 @@ class MetricTest(unittest.TestCase):
         self.assertGreater(stats['recall'], stats['precision'])
         self.assertEqual(stats['samples'], 4)
 
+    def test_bootstrap_interval_excludes_zero_when_the_gap_is_clear(self):
+        actual = [1] * 50 + [0] * 50
+        scores = [0.9] * 50 + [0.1] * 50
+        flat = [0.5] * 100
+        interval = classification.bootstrap_f1_difference(
+            actual, scores, [0.5] * 100, flat, [0.5] * 100, rounds=200)
+        self.assertGreater(interval['lower'], 0.0)
+        self.assertTrue(interval['excludes_zero'])
+        self.assertEqual(interval['share_better'], 1.0)
+
+    def test_bootstrap_interval_covers_zero_when_the_two_are_identical(self):
+        actual = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
+        scores = [0.6, 0.4, 0.7, 0.3, 0.6, 0.4, 0.7, 0.3, 0.6, 0.4]
+        interval = classification.bootstrap_f1_difference(
+            actual, scores, [0.5] * 10, list(scores), [0.5] * 10, rounds=200)
+        self.assertEqual((interval['lower'], interval['upper']), (0.0, 0.0))
+        self.assertFalse(interval['excludes_zero'])
+
+    def test_bootstrap_interval_is_reproducible(self):
+        actual = [1, 0, 1, 1, 0, 0, 1, 0]
+        scores = [0.7, 0.2, 0.6, 0.8, 0.4, 0.1, 0.9, 0.3]
+        other = [0.5, 0.5, 0.5, 0.5, 0.2, 0.2, 0.9, 0.1]
+        first = classification.bootstrap_f1_difference(actual, scores, [0.5] * 8, other, [0.5] * 8)
+        second = classification.bootstrap_f1_difference(actual, scores, [0.5] * 8, other, [0.5] * 8)
+        self.assertEqual(first, second)
+        self.assertLessEqual(first['lower'], first['upper'])
+
 
 class ClassificationTest(unittest.TestCase):
     @classmethod
@@ -173,6 +200,16 @@ class ClassificationTest(unittest.TestCase):
         # 站点×小时 的样本数合计等于训练会话数：每条会话都落在自己的桶里
         self.assertEqual(sum(e['samples'] for e in lookup['by_station_hour'].values()),
                          self.hour_section['deployment']['train_sessions'])
+
+    def test_section_reports_the_bootstrap_interval_of_the_f1_gap(self):
+        interval = self.hour_section['f1_interval']
+        self.assertIsNotNone(interval)
+        for key in ('rounds', 'seed', 'mean', 'lower', 'upper', 'excludes_zero', 'share_better'):
+            self.assertIn(key, interval)
+        self.assertLessEqual(interval['lower'], interval['upper'])
+        self.assertIsInstance(interval['excludes_zero'], bool)
+        self.assertGreaterEqual(interval['share_better'], 0.0)
+        self.assertLessEqual(interval['share_better'], 1.0)
 
 
 def reference(**overrides):

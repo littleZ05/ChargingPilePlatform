@@ -26,6 +26,7 @@
 """
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -51,6 +52,8 @@ VALIDATION_SHARE = 0.2
 PARAM_GRID = ((2, 20), (2, 40), (3, 40), (3, 80), (4, 20), (4, 40), (4, 80),
               (6, 20), (6, 40), (8, 20))
 PRUNING_CANDIDATES = 3      # 每条剪枝路径最多评估 3 个 alpha，控制训练时间
+BOOTSTRAP_ROUNDS = 1000     # 自助法重采样次数：够给出 95% 区间的稳定估计
+BOOTSTRAP_SEED = 20260918   # 固定种子：同一份数据每次跑出同一个区间，可复核
 METHODS = ['global_rate', 'facility_rate', 'facility_period_rate', 'cart']
 BASELINES = METHODS[:-1]
 METHOD_LABELS = {
@@ -143,6 +146,61 @@ def metrics(actual, scores, threshold=DEFAULT_THRESHOLD):
                 brier=_round(brier(actual, scores)),
                 threshold=round(threshold, 4),
                 confusion=dict(tp=tp, fp=fp, tn=tn, fn=fn))
+
+
+def bootstrap_f1_difference(actual, scores, thresholds, other_scores, other_thresholds,
+                            rounds=BOOTSTRAP_ROUNDS, seed=BOOTSTRAP_SEED):
+    """自助法给出两个方法 F1 差的 95% 区间：这次差的到底是方向还是噪声。
+
+    测试集只有一千多条会话、几百个正类，F1 差个零点零几完全可能是抽样带来的。
+    这里对测试会话做有放回重采样（两个方法用同一组重采样下标，比较的是同一条数据上
+    的差），重复 rounds 次，用 2.5% / 97.5% 分位给出区间，并报告"模型更好的重采样占比"。
+    种子固定，保证同一份数据每次跑出同一个区间，别人能复核。
+    """
+    size = len(actual)
+    if not size or len(scores) != size or len(other_scores) != size:
+        return None
+    picker = random.Random(seed)
+    differences, better = [], 0
+    for _ in range(rounds):
+        tp = fp = fn = other_tp = other_fp = other_fn = 0
+        for _ in range(size):
+            index = picker.randrange(size)
+            label = actual[index]
+            predicted = scores[index] >= thresholds[index]
+            other_predicted = other_scores[index] >= other_thresholds[index]
+            if label == 1:
+                if predicted:
+                    tp += 1
+                else:
+                    fn += 1
+                if other_predicted:
+                    other_tp += 1
+                else:
+                    other_fn += 1
+            elif predicted:
+                fp += 1
+            if label == 0 and other_predicted:
+                other_fp += 1
+        current = _f1(tp, fp, fn)
+        reference = _f1(other_tp, other_fp, other_fn)
+        differences.append(current - reference)
+        if current > reference:
+            better += 1
+    differences.sort()
+    lower = differences[int(0.025 * rounds)]
+    upper = differences[min(rounds - 1, int(0.975 * rounds))]
+    return dict(rounds=rounds, seed=seed,
+                mean=round(sum(differences) / rounds, 4),
+                lower=round(lower, 4), upper=round(upper, 4),
+                excludes_zero=bool(lower > 0 or upper < 0),
+                share_better=round(better / rounds, 4))
+
+
+def _f1(tp, fp, fn):
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
 
 def pooled_metrics(actual, scores, thresholds):
@@ -437,6 +495,7 @@ def evaluate_rolling(rows, window_days=sessions.WINDOW_DAYS, block_days=sessions
         entry = pooled[method]
         summary[method] = pooled_metrics(entry['actual'], entry['scores'], entry['thresholds'])
     return dict(metrics=summary, blocks=sizes, per_block=per_block, thresholds=thresholds,
+                pooled=pooled,
                 test_sessions=len(pooled['cart']['actual']),
                 positive_rate=round(sum(pooled['cart']['actual']) / len(pooled['cart']['actual']), 4)
                 if pooled['cart']['actual'] else None)
@@ -464,13 +523,20 @@ def select(evaluation):
         total += 1
         if stats['cart']['f1'] > stats[baseline_choice]['f1']:
             wins += 1
+    pooled = evaluation.get('pooled')
+    interval = None
+    if pooled:
+        interval = bootstrap_f1_difference(pooled['cart']['actual'], pooled['cart']['scores'],
+                                           pooled['cart']['thresholds'],
+                                           pooled[baseline_choice]['scores'],
+                                           pooled[baseline_choice]['thresholds'])
     return dict(chosen='cart' if adopted else baseline_choice, model_adopted=adopted,
                 baseline_choice=baseline_choice,
                 beats_on_decisions=beats_on_decisions, ranking_not_worse=ranking_not_worse,
                 f1_advantage=round(model_f1 / baseline_f1 - 1, 4) if baseline_f1 else None,
                 skill=round(1 - baseline_ap / model_ap, 4) if adopted and model_ap else None,
                 advantage=round(model_f1 / baseline_f1 - 1, 4) if baseline_f1 else None,
-                block_wins=wins, block_total=total)
+                block_wins=wins, block_total=total, f1_interval=interval)
 
 
 def calibration(actual, scores, bins=5):
@@ -535,6 +601,7 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
         f1_advantage=choice['f1_advantage'],
         beats_on_decisions=choice['beats_on_decisions'],
         ranking_not_worse=choice['ranking_not_worse'],
+        f1_interval=choice['f1_interval'],
         block_wins=choice['block_wins'], block_total=choice['block_total'],
         labels=METHOD_LABELS, baselines=BASELINES,
         metrics=evaluation['metrics'], blocks=evaluation['blocks'],
@@ -632,6 +699,23 @@ def build_report(section, path=None):
     if section['model_adopted']:
         lines += [f"相对最佳基线：F1 提升 {_percent(section['advantage'])}，"
                   f"平均精度提升 {_percent(section['skill'])}。", '']
+    interval = section.get('f1_interval')
+    if interval:
+        verdict = ('区间不含 0，方向是稳定的' if interval['excludes_zero']
+                   else '区间含 0，在这个样本量下两者的 F1 分不出胜负')
+        lines += [f"F1 差（CART − 最佳基线）的自助法 95% 区间："
+                  f"[{interval['lower']}, {interval['upper']}]，{verdict}；"
+                  f"{interval['rounds']} 次重采样里 CART 更好 {interval['share_better'] * 100:.1f}% "
+                  f"（相同下标比较两个方法，种子 {interval['seed']}，可复核）。", '']
+    baseline_stats = section['metrics'][section['baseline_choice']]
+    model_stats = section['metrics']['cart']
+    if (model_stats['recall'] < baseline_stats['recall']
+            and model_stats['precision'] > baseline_stats['precision']):
+        lines += ['', f"两个方法其实落在不同的工作点上：{section['baseline_label']} "
+                      f"召回 {baseline_stats['recall']}、精确率 {baseline_stats['precision']}；"
+                      f"CART 召回 {model_stats['recall']}、精确率 {model_stats['precision']}。"
+                      f"怕漏报就选前者，怕误报就选后者——F1 把两者等权看待，"
+                      f"所以它和平均精度会给出相反的结论，两个数都要看。", '']
     deployment = section['deployment']
     lines += [f"部署树：{deployment['leaves']} 片叶子，max_depth={deployment['params']['max_depth']}、"
               f"min_samples_leaf={deployment['params']['min_samples_leaf']}、"
