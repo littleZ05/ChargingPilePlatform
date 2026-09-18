@@ -9,6 +9,7 @@ import support
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import classification  # noqa: E402
+import sessions  # noqa: E402
 
 
 def add_signal(path, sql):
@@ -149,6 +150,73 @@ class ClassificationTest(unittest.TestCase):
         path = support.create_database(Path(self.temp.name) / 'tiny.db', support.flat_days(1))
         with self.assertRaises(ValueError):
             classification.train(path)
+
+    def test_design_matrix_carries_the_occupancy_columns(self):
+        rows, _ = sessions.load_sessions(self.hour_database)
+        categories = sessions.categories_from(rows)
+        names, matrix, statistics = classification.design(rows, categories)
+        for name in classification.OCCUPANCY_FEATURES:
+            self.assertIn(name, names)
+        self.assertTrue(all(len(vector) == len(names) for vector in matrix))
+        self.assertEqual(statistics['target'], 'duration_hours')
+
+    def test_deployment_carries_the_occupancy_lookup_with_fallbacks(self):
+        lookup = self.hour_section['deployment']['occupancy']
+        self.assertTrue(lookup['by_station_hour'])
+        self.assertTrue(lookup['by_hour'])
+        self.assertGreater(lookup['overall']['samples'], 0)
+        for entry in list(lookup['by_station_hour'].values())[:5]:
+            self.assertGreater(entry['samples'], 0)
+            for key in ('recent', 'active', 'day'):
+                self.assertGreaterEqual(entry[key], 0.0)
+        self.assertIn('没有实时会话流', lookup['source'])
+        # 站点×小时 的样本数合计等于训练会话数：每条会话都落在自己的桶里
+        self.assertEqual(sum(e['samples'] for e in lookup['by_station_hour'].values()),
+                         self.hour_section['deployment']['train_sessions'])
+
+
+def reference(**overrides):
+    """构造一条只带占用特征所需字段的会话（时长估计直接给，不经过统计）。"""
+    row = dict(day_index=0, hour=9, station_id='S1', station_median=3.0)
+    row.update(overrides)
+    return row
+
+
+class OccupancyTest(unittest.TestCase):
+    def test_counts_only_look_backwards(self):
+        rows = [reference(hour=8), reference(hour=9), reference(hour=10)]
+        counts = classification.occupancy_stream(rows)
+        self.assertEqual([c['station_recent'] for c in counts], [0.0, 1.0, 2.0])
+        # 估计时长 3 小时，前两单在 10 点都还算在充
+        self.assertEqual([c['station_active'] for c in counts], [0.0, 1.0, 2.0])
+        self.assertEqual([c['station_day'] for c in counts], [0.0, 1.0, 2.0])
+
+    def test_later_sessions_cannot_change_earlier_features(self):
+        rows = [reference(hour=8), reference(hour=9), reference(hour=10)]
+        first_two = classification.occupancy_stream(rows[:2])
+        all_three = classification.occupancy_stream(rows)
+        self.assertEqual(first_two, all_three[:2])
+        # 顺序打乱也不能改变结果：特征只取决于"更早开始的会话"
+        shuffled = classification.occupancy_stream([rows[2], rows[0], rows[1]])
+        self.assertEqual([c['station_recent'] for c in shuffled], [2.0, 0.0, 1.0])
+
+    def test_other_stations_and_distant_past_do_not_count(self):
+        rows = [reference(hour=8), reference(hour=9, station_id='S2'),
+                reference(day_index=5, hour=8)]
+        counts = classification.occupancy_stream(rows)
+        self.assertEqual(counts[1]['station_recent'], 0.0)
+        self.assertEqual(counts[1]['station_active'], 0.0)
+        self.assertEqual(counts[2]['station_recent'], 0.0)     # 5 天以外
+        self.assertEqual(counts[2]['station_active'], 0.0)
+        self.assertEqual(counts[2]['station_day'], 0.0)
+
+    def test_prefix_lets_a_test_block_see_the_training_window(self):
+        rows = [reference(hour=8), reference(hour=9)]
+        prefix = classification.occupancy_history([dict(rows[0])])
+        counts = classification.occupancy_stream(rows[1:], prefix)
+        self.assertEqual(counts[0]['station_recent'], 1.0)
+        self.assertEqual(counts[0]['station_active'], 1.0)
+
 
 
 if __name__ == '__main__':

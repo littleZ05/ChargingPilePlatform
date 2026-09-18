@@ -192,6 +192,7 @@ export interface ClassificationLookup {
   tree_rate: number
   station_median: number | null
   station_count: number
+  occupancy: { recent: number; active: number; day: number; samples: number; source: string }
   leaf: { conditions: string[]; conditions_text: string; samples: number; positives: number; probability: number }
   calibration_bucket: { range: string; samples: number; mean_score: number; observed_rate: number } | null
 }

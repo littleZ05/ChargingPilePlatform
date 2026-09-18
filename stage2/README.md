@@ -30,7 +30,7 @@ START_DASHBOARD=0 bash stage2/run_all.sh   # 只跑数据链路，不起服务
 python3 -m unittest discover -s stage2/cleaning/tests -v     # 7 项
 python3 -m unittest discover -s stage2/ingest/tests -v       # 6 项
 python3 -m unittest discover -s stage2/analysis/tests -v     # 7 项
-python3 -m unittest discover -s stage2/predict/tests -v      # 111 项（时间轴/特征/基线/模型/评估/训练/单次分位数/站点画像/分类树/分类服务/落库 + 既有预测）
+python3 -m unittest discover -s stage2/predict/tests -v      # 118 项（时间轴/特征/基线/模型/评估/训练/单次分位数/站点画像/分类树/站点占用特征/分类服务/落库 + 既有预测）
 python3 -m unittest discover -s stage2/dashboard/tests -v    # 21 项（HTTP 用例需要能访问 127.0.0.1）
 ```
 
