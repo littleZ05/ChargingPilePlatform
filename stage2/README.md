@@ -21,7 +21,7 @@ START_DASHBOARD=0 bash stage2/run_all.sh   # 只跑数据链路，不起服务
 | 3 分层存储（ODS/DWD/DWS/ADS） | `warehouse/load.py` | `python3 stage2/warehouse/load.py --data <清洗目录> --ingest <采集目录> --db warehouse.db` |
 | 4 分析（统计/相关/聚类/回归/异常） | `analysis/analysis.py`、`analysis/query.py` | 见 `docs/architecture.md` |
 | 5 可视化（Vue3 + ECharts 大屏与报表） | `dashboard/` | `python3 stage2/dashboard/server.py --data <清洗目录> --model <model.json>` |
-| 6 预测（负荷 + 单次分位数 + 站点画像 + 落库） | `predict/train_v2.py`（主入口）、`predict/sessions.py`、`predict/stations.py`、`predict/publish.py`、`predict/train.py`（旧版，待切换后移除） | `python3 stage2/predict/train_v2.py --db warehouse.db --out model_v2.json --report 预测评估_v2.md`，再 `python3 stage2/predict/publish.py --db warehouse.db --model model_v2.json` |
+| 6 预测（负荷 + 单次分位数 + 站点画像 + 会话分类树 + 落库） | `predict/train_v2.py`（主入口）、`predict/sessions.py`、`predict/stations.py`、`predict/classification.py`、`predict/tree.py`、`predict/publish.py`、`predict/train.py`（旧版，待切换后移除） | `python3 stage2/predict/train_v2.py --db warehouse.db --out model_v2.json --report 预测评估_v2.md`，再 `python3 stage2/predict/publish.py --db warehouse.db --model model_v2.json` |
 | 7 业务应用（RESTful API、预警、集成） | `dashboard/server.py` | 接口见 `docs/api.md` |
 
 ## 测试
@@ -30,7 +30,7 @@ START_DASHBOARD=0 bash stage2/run_all.sh   # 只跑数据链路，不起服务
 python3 -m unittest discover -s stage2/cleaning/tests -v     # 7 项
 python3 -m unittest discover -s stage2/ingest/tests -v       # 6 项
 python3 -m unittest discover -s stage2/analysis/tests -v     # 7 项
-python3 -m unittest discover -s stage2/predict/tests -v      # 79 项（时间轴/特征/基线/模型/评估/训练/单次分位数/站点画像/落库 + 既有预测）
+python3 -m unittest discover -s stage2/predict/tests -v      # 98 项（时间轴/特征/基线/模型/评估/训练/单次分位数/站点画像/分类树/落库 + 既有预测）
 python3 -m unittest discover -s stage2/dashboard/tests -v    # 17 项（HTTP 用例需要能访问 127.0.0.1）
 ```
 
