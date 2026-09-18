@@ -21,6 +21,7 @@ import evaluate
 import features
 import models
 import sessions
+import stations
 import timeline
 
 BASES = ['sessions', 'kwh']
@@ -74,7 +75,8 @@ def train_task(rows, base, horizon, min_train_days=28, alpha=models.DEFAULT_ALPH
 
 
 def train(database, min_train_days=28, alpha=models.DEFAULT_ALPHA, share=SELECTION_SHARE,
-          session_share=sessions.FIRST_SHARE, with_sessions=True):
+          session_share=sessions.FIRST_SHARE, with_sessions=True, with_stations=True,
+          station_min_sessions=stations.MIN_SESSIONS):
     panel = timeline.build(database)
     rows = features.attach_lags(panel)
     tasks = []
@@ -94,6 +96,8 @@ def train(database, min_train_days=28, alpha=models.DEFAULT_ALPHA, share=SELECTI
         tasks=tasks)
     if with_sessions:
         model['sessions'] = sessions.train(database, session_share, alpha)
+    if with_stations:
+        model['stations'] = stations.train(database, station_min_sessions)
     return model
 
 
@@ -139,7 +143,10 @@ def build_report(model, path):
     if model.get('sessions'):
         lines.append(sessions.build_report(model['sessions']))
         lines.append('')
-    lines += ['## 五、限制', '',
+    if model.get('stations'):
+        lines.append(stations.build_report(model['stations']))
+        lines.append('')
+    lines += ['## 六、限制', '',
               f"- {model['note']}",
               '- 缺测日在训练与评估中一律排除，不做零值填充。',
               '- 方法选择与指标报告分属不同时段，但同属一份数据，仍属课程级评估。',
@@ -161,10 +168,12 @@ def main(argv=None):
     parser.add_argument('--alpha', type=float, default=models.DEFAULT_ALPHA)
     parser.add_argument('--no-sessions', dest='with_sessions', action='store_false',
                         help='跳过单次充电分位数（时长/电量）部分')
+    parser.add_argument('--no-stations', dest='with_stations', action='store_false',
+                        help='跳过站点画像聚类与繁忙度分档')
     args = parser.parse_args(argv)
 
     model = train(args.db, args.min_train_days, args.alpha,
-                  with_sessions=args.with_sessions)
+                  with_sessions=args.with_sessions, with_stations=args.with_stations)
     Path(args.out).write_text(json.dumps(model, ensure_ascii=False, indent=2) + '\n',
                               encoding='utf-8')
     if args.report:
@@ -182,7 +191,14 @@ def main(argv=None):
              'baseline': task['baseline_choice'], 'baseline_pinball': task['baseline_pinball'],
              'coverage': task['coverage'],
              'calibration_gap': task['calibration_gap'],
-             'skill': task['skill']} for task in model.get('sessions', {}).get('tasks', [])]},
+             'skill': task['skill']} for task in model.get('sessions', {}).get('tasks', [])],
+        'stations': ({'stations': model['stations']['stations'],
+                      'clustered': model['stations']['clustered_stations'],
+                      'sparse': len(model['stations']['sparse_stations']),
+                      'k': model['stations']['cluster_count'],
+                      'silhouette': model['stations']['silhouette'],
+                      'stability': model['stations']['stability'].get('agreement')}
+                     if model.get('stations') else None)},
         ensure_ascii=False))
     return 0
 
