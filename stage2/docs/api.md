@@ -90,6 +90,9 @@ curl -s 'http://127.0.0.1:8765/api/classification?facility=交流&period=peak&ho
   `decision`=1 表示概率达到 `threshold`（阈值在每个训练窗口内按 F1 选，随模型产物一起存下来）。
 - `classification.methods`：四个候选方法在测试块上的平均精度（PR-AUC）、ROC-AUC、准确率、精确率、召回率、F1 与 Brier。
   采纳要求模型 F1 领先最佳基线 10%，且平均精度不低于最佳基线；不满足时如实上线经验规则，不把树说成赢了。
+- `classification.f1_interval`：F1 差（CART − 最佳基线）的自助法 95% 区间。两个方法在同一组重采样下标上比较，
+  种子固定（`seed`），`excludes_zero` 说明这个差是稳定方向还是抽样噪声，`share_better` 是树胜出的重采样占比。
+  报告区间而不是只报一个点估计，是为了让"树差多少"这句话可复核。
 - `classification.curve`：同一设施类型与峰谷时段下 0–23 点的概率；`probability` 是上线方法，`tree_rate` 是树的对照曲线。
   上线查表规则时曲线是常数——这是事实，不做美化。`segments` 是设施类型 × 峰谷时段的历史样本量与长时长比例。
 - `classification.lookup.occupancy`：这次判定用到的"扫码时该站占用"三个数（过去 2 小时开单数 `recent`、

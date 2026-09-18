@@ -213,6 +213,8 @@ export interface SessionClassification {
   ranking_not_worse: boolean
   f1_advantage: number | null
   skill: number | null
+  f1_interval: { rounds: number; seed: number; mean: number; lower: number; upper: number;
+                 excludes_zero: boolean; share_better: number } | null
   block_wins: number
   block_total: number
   test_sessions: number

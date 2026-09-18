@@ -321,6 +321,13 @@ onMounted(loadAll)
           </tbody>
         </table>
       </div>
+      <p v-if="classification.f1_interval" class="footnote">
+        F1 差（CART − 最佳基线）的自助法 95% 区间：
+        {{ describe(classification.f1_interval.lower, 3) }} ~ {{ describe(classification.f1_interval.upper, 3) }}，
+        {{ classification.f1_interval.excludes_zero ? '区间不含 0，差距是稳定的' : '区间含 0，这个样本量下分不出胜负' }}；
+        {{ classification.f1_interval.rounds }} 次重采样里树更好的占比
+        {{ relative(classification.f1_interval.share_better) }}。
+      </p>
       <div class="scroll">
         <table>
           <thead>
