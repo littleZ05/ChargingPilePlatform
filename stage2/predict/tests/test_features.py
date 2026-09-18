@@ -68,7 +68,7 @@ class FeaturesTest(unittest.TestCase):
     def test_usable_rows_require_all_columns(self):
         hourly = [[2] * 24 for _ in range(3)] + [None] + [[2] * 24 for _ in range(8)]
         rows = features.attach_lags(self.panel(hourly))
-        usable = features.usable_rows(rows)
+        usable = features.usable_rows(rows, features.task_spec('sessions'))
         self.assertTrue(all(row['mask'] == 1 for row in usable))
         # 第 7/8/9/11 天同时具备昨日与上周同日；第 10 天因为 d-7 恰好缺测被排除
         self.assertEqual(sorted({row['day_index'] for row in usable}), [7, 8, 9, 11])

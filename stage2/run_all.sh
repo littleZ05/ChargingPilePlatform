@@ -42,7 +42,10 @@ echo "== 4/6 数据分析（描述统计、相关性、聚类、回归、季节�
 python3 "$STAGE2/analysis/analysis.py" --db "$RUN/warehouse.db" \
   --out "$RUN/analysis.json" --report "$RUN/分析报告.md"
 
-echo "== 5/6 数据预测（季节基线 + 线性回归，留一星期交叉验证）"
+echo "== 5/6 数据预测（多跨度岭回归 + 基线对照，扩展窗口滚动前进）"
+python3 "$STAGE2/predict/train_v2.py" --db "$RUN/warehouse.db" \
+  --out "$RUN/model_v2.json" --report "$RUN/预测评估_v2.md"
+echo "   旧版单跨度模型（大屏仍在用，P4 切换后移除）"
 python3 "$STAGE2/predict/train.py" --db "$RUN/warehouse.db" \
   --out "$RUN/model.json" --report "$RUN/预测评估.md"
 
