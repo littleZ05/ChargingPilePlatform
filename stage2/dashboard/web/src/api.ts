@@ -72,7 +72,90 @@ export interface Battery {
   notes: string[]
 }
 
-export interface Health { status: string; version: string; rule_version: string; sessions: number; stations: number }
+export interface Health {
+  status: string
+  version: string
+  rule_version: string
+  sessions: number
+  stations: number
+  model_version?: string | null
+  forecast_ready?: boolean
+}
+
+export interface ForecastMetrics { samples: number; mae: number; rmse: number; relative_error: number | null }
+
+export interface ForecastSeries {
+  version: string
+  generated_at: string
+  base: 'sessions' | 'kwh'
+  horizon: number
+  method: string
+  column: string
+  day: { day_index: number; weekday: string; is_weekend: number }
+  hours: { hour: number; predicted: number | null }[]
+  metrics: ForecastMetrics | null
+  baseline: string | null
+  baseline_metrics: ForecastMetrics | null
+  note: string
+}
+
+export interface SessionQuantiles {
+  version: string
+  target: 'duration_hours' | 'kwh'
+  facility: string
+  period: string
+  hour: number
+  quantiles: Record<string, number>
+  levels: { tau: number; label: string }[]
+  chosen: Record<string, string>
+  coverage: Record<string, number>
+  calibration_gap: Record<string, number>
+  protocol: Record<string, string>
+}
+
+export interface StationCluster {
+  cluster: number
+  name: string
+  stations: number
+  sessions: number
+  profile: Record<string, number>
+}
+
+export interface StationProfile {
+  stations: number
+  clustered: number
+  sparse: number
+  cluster_count: number
+  silhouette: number
+  clusters: StationCluster[]
+  views: { k: number; silhouette: number | null; clusters: StationCluster[] }[]
+  tiers: { cuts: number[]; names: string[]; counts: Record<string, number> }
+  top_stations: {
+    station: string
+    sessions: number
+    active_days: number
+    sessions_per_active_day: number
+    kwh_per_session: number
+    duration_mean: number
+    peak_share: number
+    dc_share: number
+    cluster: string | null
+    busyness: string
+  }[]
+  stability: { stations: number; agreement: number | null; note: string }
+  protocol: Record<string, string>
+  note: string
+}
+
+export interface ModelOptions {
+  version: string
+  facilities: string[]
+  periods: string[]
+  platforms: string[]
+  targets: string[]
+  levels: { tau: number; label: string }[]
+  protocol: Record<string, string>
+}
 
 /** 过滤空值与 energy=all，避免把"全部"当成筛选条件传给服务端。 */
 export function queryOf(filters: Record<string, string>): string {

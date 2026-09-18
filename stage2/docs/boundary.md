@@ -7,11 +7,11 @@
 | 组件 | 证据 |
 |---|---|
 | Python 3.10 标准库（无第三方依赖） | `stage2/*/**.py`，全部可 `python3` 直接运行 |
-| SQLite（业务库读取 + 数仓落库 + 即席查询） | `build-demo/chargingpile.db`、`warehouse.db`（44 张表） |
-| HTTP 服务与 RESTful API | `stage2/dashboard/server.py`，`/api/health` 等 6 个接口 |
+| SQLite（业务库读取 + 数仓落库 + 即席查询） | `build-demo/chargingpile.db`、`warehouse.db`（49 张表，含预测层回落的 DWS/ADS） |
+| HTTP 服务与 RESTful API | `stage2/dashboard/server.py`，`/api/health` 等 9 个接口 |
 | Vue3 + ECharts 离线大屏 | `stage2/dashboard/web/`（源码）与 `web/dist/`（构建产物，ECharts 按需打包，无 CDN、无外网依赖） |
 | 自研算法实现 | K-Means（k-means++）、最小二乘回归、岭回归（手写高斯消元）、分位数回归（pinball loss + IRLS）、Pearson、IQR/3σ、季节基线、扩展窗口滚动评估 |
-| 自动化测试 | 清洗 7 项 + 采集 6 项 + 分析 7 项 + 预测 71 项 + 大屏 9 项（其中 2 项 HTTP 用例需能访问 127.0.0.1） |
+| 自动化测试 | 清洗 7 项 + 采集 6 项 + 分析 7 项 + 预测 78 项 + 大屏 17 项（其中 2 项 HTTP 用例需能访问 127.0.0.1） |
 
 ## 二、未部署的组件及等价实现
 

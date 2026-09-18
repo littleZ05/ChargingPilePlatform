@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api, type Battery, type Health, type OptionsPayload, type Overview } from './api'
 import FilterBar from './components/FilterBar.vue'
 import BatteryView from './views/BatteryView.vue'
+import ForecastView from './views/ForecastView.vue'
 import OverviewView from './views/OverviewView.vue'
 import QualityView from './views/QualityView.vue'
 import StationsView from './views/StationsView.vue'
@@ -10,6 +11,7 @@ import StationsView from './views/StationsView.vue'
 const TABS = [
   { key: 'overview', label: '总览', view: 'operations' },
   { key: 'stations', label: '站点与报表', view: 'stations' },
+  { key: 'forecast', label: '预测', view: 'forecast' },
   { key: 'battery', label: '电池样本', view: 'battery' },
   { key: 'quality', label: '数据来源与质量', view: 'quality' },
 ] as const
@@ -100,7 +102,7 @@ onMounted(loadAll)
 
     <p id="scope" class="footnote">{{ scopeText }}</p>
 
-    <FilterBar v-if="options && tab !== 'battery'" :options="options" v-model="filters" />
+    <FilterBar v-if="options && tab !== 'battery' && tab !== 'forecast'" :options="options" v-model="filters" />
 
     <div v-if="error" class="banner error">
       <b>数据读取失败：</b>{{ error }}<br />
@@ -113,6 +115,7 @@ onMounted(loadAll)
     <template v-if="overview">
       <OverviewView v-if="tab === 'overview'" :data="overview" :options="options" />
       <StationsView v-else-if="tab === 'stations'" :data="overview" :filters="filters" />
+      <ForecastView v-else-if="tab === 'forecast'" />
       <QualityView v-else-if="tab === 'quality'" :data="overview" :options="options" />
     </template>
     <BatteryView v-if="tab === 'battery' && battery" :data="battery" />

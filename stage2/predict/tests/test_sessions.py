@@ -153,6 +153,7 @@ class SessionsTest(unittest.TestCase):
         self.assertGreater(section['sessions'], 0)
         self.assertGreater(section['test_sessions'], 0)
         self.assertEqual(set(section['deployment']), set(sessions.TARGETS))
+        self.assertTrue(section['categories']['facility_label'])
         for target, deployed in section['deployment'].items():
             self.assertEqual(deployed['target'], target)
             self.assertGreater(deployed['sessions'], 0)

@@ -495,7 +495,8 @@ def train(database, share=FIRST_SHARE, alpha=DEFAULT_ALPHA):
         zero_energy_sessions=len(zero_energy),
         levels=[{'tau': tau, 'label': label} for tau, label in
                 ((0.1, '偏短（P10）'), (0.5, '中位数（P50）'), (0.9, '偏长（P90）'))],
-        tasks=tasks, deployment=deployment)
+        tasks=tasks, deployment=deployment,
+        categories=deployment[TARGETS[0]]['categories'])
 
 
 def build_deployment(rows, target, chosen, alpha=DEFAULT_ALPHA, window_days=WINDOW_DAYS):
