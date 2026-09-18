@@ -1,0 +1,25 @@
+$ curl -s http://127.0.0.1:8765/api/health
+{"code": 0, "data": {"status": "ok", "version": "8a4f6c2aaef52465", "rule_version": "2.0", "sessions": 3395, "stations": 105, "model_version": "202609181803", "forecast_ready": true}}
+$ curl -s "http://127.0.0.1:8765/api/overview?platform=ios&energy=positive"
+{"code": 0, "data": {"version": "8a4f6c2aaef52465", "rule_version": "2.0", "filters": {"platform": "ios", "energy": "positive"}, "summary": {"sessions": 2195, "positive_energy": 2195, "zero_energy": 0, "total_kwh": "12788.67", "duration_hours": "6344.790277778", "mean_kwh": "5.83", "mean_duration_ho
+
+$ curl -s "http://127.0.0.1:8765/api/forecast?base=sessions&horizon=24"
+{"code": 0, "data": {"version": "202609181803", "generated_at": "2026-09-18T18:03:45+08:00", "base": "sessions", "horizon": 24, "method": "ridge", "column": "sessions_h24", "day": {"day_index": 321, "weekday": "Mon", "is_weekend": 0}, "hours": [{"hour": 0, "pr
+
+$ curl -s "http://127.0.0.1:8765/api/session-quantiles?target=duration_hours&facility=交流&period=normal&hour=9"
+{"code": 0, "data": {"version": "202609181803", "target": "duration_hours", "facility": "交流", "period": "normal", "hour": 9, "platform": null, "weekend": 0, "station": null, "quantiles": {"0.1": 1.309667, "0.5": 3.070833, "0.9": 4.741333}, "levels": [{"tau
+
+$ curl -s "http://127.0.0.1:8765/api/stations"
+{"code": 0, "data": {"stations": 105, "clustered": 56, "sparse": 49, "cluster_count": 2, "silhouette": 0.6414, "clusters": [{"cluster": 0, "name": "偏冷清·时段集中", "stations": 53, "sessions": 2268, "profile": {"sessions_per_active
+
+$ for p in health options overview battery report forecast stations model-options; do curl -s -o /dev/null -w "$p %{http_code}\n" "http://127.0.0.1:8765/api/$p"; done
+health 200
+options 200
+overview 200
+battery 200
+report 200
+forecast 200
+stations 200
+model-options 200
+$ curl -s -o /dev/null -w "session-quantiles %{http_code}\n" "http://127.0.0.1:8765/api/session-quantiles?target=duration_hours&facility=交流&period=normal&hour=9"
+session-quantiles 200

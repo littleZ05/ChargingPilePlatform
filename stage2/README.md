@@ -30,9 +30,14 @@ START_DASHBOARD=0 bash stage2/run_all.sh   # 只跑数据链路，不起服务
 python3 -m unittest discover -s stage2/cleaning/tests -v     # 7 项
 python3 -m unittest discover -s stage2/ingest/tests -v       # 6 项
 python3 -m unittest discover -s stage2/analysis/tests -v     # 7 项
-python3 -m unittest discover -s stage2/predict/tests -v      # 78 项（时间轴/特征/基线/模型/评估/训练/单次分位数/站点画像/落库 + 既有预测）
+python3 -m unittest discover -s stage2/predict/tests -v      # 79 项（时间轴/特征/基线/模型/评估/训练/单次分位数/站点画像/落库 + 既有预测）
 python3 -m unittest discover -s stage2/dashboard/tests -v    # 17 项（HTTP 用例需要能访问 127.0.0.1）
 ```
+
+> 代理环境注意：本机若设置了 `LD_PRELOAD=libproxychains`，loopback 请求会被劫持，
+> 大屏的 2 个 HTTP 用例会误判为"环境不允许"而跳过。请用
+> `env -u LD_PRELOAD -u PROXYCHAINS_CONF_FILE python3 -m unittest discover -s stage2/dashboard/tests -v`
+> 复跑，17 项会全部真实执行。
 
 ## 大屏前端（Vue3）
 
