@@ -2,7 +2,7 @@
 
 服务：`python3 stage2/dashboard/server.py --data <清洗结果目录> [--model <model.json>] [--model-v2 <model_v2.json>] [--port 8765]`
 
-`--model-v2` 指向第二阶段机器学习重构后的模型产物（负荷 1/6/24 小时 + 单次分位数 + 站点画像）。
+`--model-v2` 指向第二阶段机器学习重构后的模型产物（负荷 1/6/24 小时 + 单次分位数 + 站点画像 + 会话分类树）。
 两个参数可以同时给：`/api/forecast` 优先用 v2 产物，未加载 v2 时退回旧版单跨度模型。
 
 - 监听 `127.0.0.1`，不对外网暴露；只读，不写任何业务数据。
@@ -15,7 +15,7 @@
 
 | 接口 | 参数 | 说明 |
 |---|---|---|
-| `GET /api/health` | 无 | 服务状态与数据版本（manifest 哈希前 16 位） |
+| `GET /api/health` | 无 | 服务状态与数据版本（manifest 哈希前 16 位）、`forecast_ready` 与 `classification_ready`（是否加载了对应的模型产物段） |
 | `GET /api/options` | 无 | 筛选枚举（站点、桩类型、峰谷时段、平台、星期、电量）、站名映射、取值说明表、清洗对账与总量 |
 | `GET /api/overview` | `station_id`、`facility_type`、`time_period`、`platform`、`weekday`、`energy`（all/positive/zero） | 交集筛选后的 KPI、七维聚合、时长分箱、质量标签、覆盖说明 |
 | `GET /api/battery` | 无 | 独立电池样本：SOC/电流/温度分布 + 匿名 SOC-电压散点（不受会话筛选影响） |
@@ -24,6 +24,7 @@
 | `GET /api/session-quantiles` | `target`（duration_hours/kwh）、`facility`、`period`、`hour`（0–23）、`platform`、`weekend`（0/1）、`station`（可选） | 单次充电时长/电量的 P10/P50/P90，附经验覆盖率与校准偏差 |
 | `GET /api/stations` | `limit`（1–105，默认 20） | 站点画像：聚类结果、繁忙度分档、Top 站点与分半一致率 |
 | `GET /api/model-options` | 无 | 单次分位数接口的合法取值（设施类型、峰谷时段、平台、分位档），供前端下拉框取用 |
+| `GET /api/classification` | `facility`、`period`、`hour`（0–23，必填）、`platform`、`weekend`（0/1）、`station`（可选） | 会话级长时长占用预警：这次会话的概率与"提前提示/不需要额外动作"判定、落点叶子规则、校准区间、24 小时概率曲线、方法对照表与分段历史比例 |
 
 ## 字段定义
 
@@ -68,6 +69,12 @@ curl -s 'http://127.0.0.1:8765/api/session-quantiles?target=duration_hours&facil
 
 # 站点画像与繁忙度（前 10 个站点）
 curl -s 'http://127.0.0.1:8765/api/stations?limit=10'
+
+# 交流桩高峰时段 9 点的长时长占用预警
+curl -s 'http://127.0.0.1:8765/api/classification?facility=交流&period=peak&hour=9'
+
+# 带站点：用该站点的历史时长中位数细化概率（站点样本少时自动向全局退让）
+curl -s 'http://127.0.0.1:8765/api/classification?facility=交流&period=peak&hour=9&station=171000000'
 ```
 
 ## 预测类接口的取值说明
@@ -78,6 +85,13 @@ curl -s 'http://127.0.0.1:8765/api/stations?limit=10'
 - `quantiles`：键为 `0.1`/`0.5`/`0.9`；`coverage` 是测试期上"实际值不超过预测分位数"的比例，理想值等于该分位；
   `calibration_gap` 是它与名义分位的偏差（绝对值）。偏差超过 0.05 说明这个分位数没校准好。
 - `stations.clusters[].profile`：7 维画像特征；`tiers.counts` 是繁忙度各档的站点数；`sparse` 是样本不足、未参与聚类的站点数。
+- `classification.lookup`：这一次会话的预警结果。`probability` 是**上线方法**给出的概率（`method` 字段写明是哪一支），
+  `rule_rate` 与 `tree_rate` 是两条对照值——上线经验规则时 `probability` 等于 `rule_rate`，上线树时等于 `tree_rate`；
+  `decision`=1 表示概率达到 `threshold`（阈值在每个训练窗口内按 F1 选，随模型产物一起存下来）。
+- `classification.methods`：四个候选方法在测试块上的平均精度（PR-AUC）、ROC-AUC、准确率、精确率、召回率、F1 与 Brier。
+  采纳要求模型 F1 领先最佳基线 10%，且平均精度不低于最佳基线；不满足时如实上线经验规则，不把树说成赢了。
+- `classification.curve`：同一设施类型与峰谷时段下 0–23 点的概率；`probability` 是上线方法，`tree_rate` 是树的对照曲线。
+  上线查表规则时曲线是常数——这是事实，不做美化。`segments` 是设施类型 × 峰谷时段的历史样本量与长时长比例。
 
 ## 与第一阶段的关系
 

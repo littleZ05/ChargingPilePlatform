@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """把预测结果落到数仓：dws_day_hour / dws_station_features / ads_station_busyness /
-ads_forecast / ads_session_quantile。
+ads_forecast / ads_session_quantile / ads_session_classification / ads_classification_metric。
 
 为什么要在预测之后单独落一次库：数仓装载（warehouse/load.py）发生在训练之前，
 那时候还没有模型；而课程的"数据存储"环节要求预测结果也要能按层查到，
@@ -25,16 +25,20 @@ import sessions  # noqa: E402
 import timeline  # noqa: E402
 
 TABLES = ('dws_day_hour', 'dws_station_features', 'ads_station_busyness',
-          'ads_forecast', 'ads_session_quantile')
+          'ads_forecast', 'ads_session_quantile', 'ads_session_classification',
+          'ads_classification_metric')
 
-# 这 5 张表在数仓装载之后由本脚本写入，清单（warehouse_manifest.json）要跟着更新，
-# 否则会出现"清单 44 张表、库内 49 张表"的对不上。
+# 这 7 张表在数仓装载之后由本脚本写入，清单（warehouse_manifest.json）要跟着更新，
+# 否则会出现"清单里少登记、库内多出"的对不上。
 PUBLISHED_TABLES = {
     'dws_day_hour': ('dws', '相对时间轴（day_index）× 小时面板：会话数、电量与缺测掩码'),
     'dws_station_features': ('dws', '站点画像特征、所属簇与繁忙度档位'),
     'ads_station_busyness': ('ads', '站点繁忙度分档（稀疏站点标记为样本不足）'),
     'ads_forecast': ('ads', '未来一天 24 小时的负荷预测（会话数/电量 × 未来 1/6/24 小时）'),
     'ads_session_quantile': ('ads', '单次充电时长/电量的 P10/P50/P90（设施类型 × 峰谷时段 × 小时）'),
+    'ads_session_classification': ('ads', '长时长占用预警：设施类型 × 峰谷时段 × 小时的'
+                                        '概率、判定与树规则落点'),
+    'ads_classification_metric': ('ads', '分类方法对照指标（CART 与三条经验规则）'),
 }
 
 SCHEMA = {
@@ -52,6 +56,14 @@ SCHEMA = {
     'ads_session_quantile': ('target text, facility_label text, time_period text, hour integer, '
                              'tau real, predicted real, chosen text, coverage real, '
                              'calibration_gap real, model_version text'),
+    'ads_session_classification': ('facility_label text, time_period text, hour integer, '
+                                   'method text, probability real, decision integer, '
+                                   'rule_rate real, tree_rate real, threshold real, '
+                                   'sessions integer, model_version text'),
+    'ads_classification_metric': ('method text, label text, average_precision real, '
+                                  'roc_auc real, accuracy real, precision real, recall real, '
+                                  'f1 real, brier real, threshold real, chosen integer, '
+                                  'model_version text'),
 }
 
 
@@ -121,6 +133,36 @@ def publish(database, model, dictionary=None):
         connection.executemany(
             'insert into ads_session_quantile values (?,?,?,?,?,?,?,?,?,?)', quantile_rows)
         counts['ads_session_quantile'] = len(quantile_rows)
+
+        classification = model.get('classification')
+        classification_rows, metric_rows = [], []
+        if classification:
+            deployment = classification['deployment']
+            categories = classification['categories']
+            threshold = deployment['decision_threshold']
+            for facility in categories['facility_label']:
+                for period in categories['time_period']:
+                    for hour in range(timeline.HOURS):
+                        detail = serving.classification_detail(classification, facility,
+                                                               period, hour)
+                        classification_rows.append(
+                            (facility, period, hour, detail['method'], detail['probability'],
+                             detail['decision'], detail['rule_rate'], detail['tree_rate'],
+                             threshold, deployment['train_sessions'], version))
+            for method in classification['baselines'] + ['cart']:
+                stats = classification['metrics'][method]
+                metric_rows.append((method, classification['labels'][method],
+                                    stats['average_precision'], stats['roc_auc'],
+                                    stats['accuracy'], stats['precision'], stats['recall'],
+                                    stats['f1'], stats['brier'], stats['threshold'],
+                                    int(method == classification['chosen']), version))
+        connection.executemany(
+            'insert into ads_session_classification values (?,?,?,?,?,?,?,?,?,?,?)',
+            classification_rows)
+        connection.executemany(
+            'insert into ads_classification_metric values (?,?,?,?,?,?,?,?,?,?,?,?)', metric_rows)
+        counts['ads_session_classification'] = len(classification_rows)
+        counts['ads_classification_metric'] = len(metric_rows)
         connection.commit()
     finally:
         connection.close()
@@ -139,7 +181,13 @@ def publish(database, model, dictionary=None):
                  f"| ADS | `ads_forecast` | {counts['ads_forecast']} | "
                  '未来一天 24 小时的负荷预测（会话数/电量 × 未来 1/6/24 小时 × 上线方法） |',
                  f"| ADS | `ads_session_quantile` | {counts['ads_session_quantile']} | "
-                 '单次充电时长/电量的 P10/P50/P90（按设施类型 × 峰谷时段 × 小时） |']
+                 '单次充电时长/电量的 P10/P50/P90（按设施类型 × 峰谷时段 × 小时） |',
+                 f"| ADS | `ads_session_classification` | "
+                 f"{counts.get('ads_session_classification', 0)} | "
+                 '长时长占用预警：设施类型 × 峰谷时段 × 小时的概率、判定与上线方法 |',
+                 f"| ADS | `ads_classification_metric` | "
+                 f"{counts.get('ads_classification_metric', 0)} | "
+                 '分类方法对照指标（CART 与三条经验规则，含上线标记） |']
         with path.open('a', encoding='utf-8') as stream:
             stream.write('\n'.join(lines) + '\n')
     refresh_manifest(database, counts, version, generated_at)

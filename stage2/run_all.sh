@@ -45,7 +45,7 @@ python3 "$STAGE2/analysis/analysis.py" --db "$RUN/warehouse.db" \
 echo "== 5/6 数据预测（多跨度岭回归 + 基线对照，扩展窗口滚动前进）"
 python3 "$STAGE2/predict/train_v2.py" --db "$RUN/warehouse.db" \
   --out "$RUN/model_v2.json" --report "$RUN/预测评估_v2.md"
-echo "   预测结果落库（dws_day_hour / dws_station_features / ads_station_busyness / ads_forecast / ads_session_quantile）"
+echo "   预测结果落库（dws_day_hour / dws_station_features / ads_station_busyness / ads_forecast / ads_session_quantile / ads_session_classification / ads_classification_metric）"
 python3 "$STAGE2/predict/publish.py" --db "$RUN/warehouse.db" --model "$RUN/model_v2.json" \
   --dictionary "$RUN/数据字典.md"
 echo "   旧版单跨度模型（大屏仍在用，P4 切换后移除）"

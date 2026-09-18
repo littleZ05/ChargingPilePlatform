@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'predict'))
-from serving import session_quantile, station_payload  # noqa: E402
+from serving import classification_payload, session_quantile, station_payload  # noqa: E402
 
 BASES = ('sessions', 'kwh')
 HORIZONS = (1, 6, 24)
@@ -98,6 +98,37 @@ def session_quantiles(model, filters):
                 coverage={task['tau']: task['coverage'] for task in tasks},
                 calibration_gap={task['tau']: task['calibration_gap'] for task in tasks},
                 protocol=section['protocol'])
+
+
+def classification(model, filters):
+    """会话级长时长占用预警：给定扫码时已知的信息，给出概率与是否提示。"""
+    filters = dict(filters)
+    section = model.get('classification')
+    if not section:
+        raise ValueError('模型产物里没有会话分类部分，请重跑 train_v2.py')
+    facility = filters.pop('facility', None)
+    period = filters.pop('period', None)
+    platform = filters.pop('platform', None)
+    station = filters.pop('station', None)
+    weekend = _pop_int(filters, 'weekend', 0, 0, 1)
+    hour = _pop_int(filters, 'hour', None, 0, HOURS - 1)
+    if filters:
+        raise ValueError('分类参数无效：仅支持 facility/period/hour/platform/weekend/station')
+    categories = section['categories']
+    facility = facility or categories['facility_label'][0]
+    period = period or categories['time_period'][0]
+    if facility not in categories['facility_label']:
+        raise ValueError(f'facility 取值无效：{facility}')
+    if period not in categories['time_period']:
+        raise ValueError(f'period 取值无效：{period}')
+    if platform is not None and platform not in categories['platform']:
+        raise ValueError(f'platform 取值无效：{platform}')
+    if hour is None:
+        raise ValueError('缺少 hour（0–23）')
+    payload = classification_payload(section, facility, period, hour, station,
+                                     platform, weekend)
+    payload['version'] = model.get('version')
+    return payload
 
 
 def stations(model, filters):

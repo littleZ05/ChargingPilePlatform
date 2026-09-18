@@ -2,8 +2,11 @@
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 DASHBOARD = Path(__file__).resolve().parents[1]
 PREDICT = DASHBOARD.parent / 'predict'
@@ -14,6 +17,9 @@ for path in (str(DASHBOARD), str(PREDICT), str(PREDICT / 'tests')):
 import model_api  # noqa: E402
 import support  # noqa: E402
 import train_v2  # noqa: E402
+from server import create_server  # noqa: E402
+from test_analytics import (BATTERY_COLUMNS, STATION_COLUMNS,  # noqa: E402
+                            session as cleaning_session, write_cleaning)
 
 
 class ModelApiTest(unittest.TestCase):
@@ -26,6 +32,15 @@ class ModelApiTest(unittest.TestCase):
                    for hour in range(24)] for offset in range(50)]
         database = support.create_database(cls.root / 'warehouse.db', hourly)
         cls.model = train_v2.train(database, min_train_days=14)
+        # HTTP 用例要起真实服务，而服务启动时按契约校验清洗产物，所以这里也要一份合成产物
+        cls.cleaning = cls.root / 'cleaning'
+        cls.cleaning.mkdir()
+        write_cleaning(cls.cleaning, {
+            'sessions': [cleaning_session('1', kwh='0.1'),
+                         cleaning_session('2', kwh='0.2', station_id='002', start_hour='13')],
+            'stations': [dict(STATION_COLUMNS, stationId='001'),
+                         dict(STATION_COLUMNS, source_row='2', stationId='002', station_name='乙站')],
+            'battery': [dict(BATTERY_COLUMNS)]})
 
     def test_forecast_returns_24_hours_for_every_combination(self):
         for base in model_api.BASES:
@@ -96,6 +111,79 @@ class ModelApiTest(unittest.TestCase):
             model_api.stations({'version': 'x'}, {})
         with self.assertRaises(ValueError):
             model_api.forecast({'version': 'x'}, {})
+        with self.assertRaises(ValueError):
+            model_api.classification({'version': 'x'}, {'hour': '9'})
+
+    def test_classification_returns_probability_decision_and_context(self):
+        options = model_api.model_options(self.model)
+        payload = model_api.classification(self.model, {
+            'facility': options['facilities'][0], 'period': options['periods'][0], 'hour': '9'})
+        lookup = payload['lookup']
+        self.assertEqual(lookup['method'], payload['chosen'])
+        self.assertGreaterEqual(lookup['probability'], 0.0)
+        self.assertLessEqual(lookup['probability'], 1.0)
+        self.assertEqual(lookup['decision'], int(lookup['probability'] >= lookup['threshold']))
+        self.assertTrue(lookup['decision_label'])
+        self.assertTrue(lookup['leaf']['conditions_text'] or lookup['leaf']['samples'] > 0)
+        self.assertEqual(len(payload['curve']), 24)
+        self.assertEqual([row['hour'] for row in payload['curve']], list(range(24)))
+        self.assertEqual(len(payload['methods']), 4)
+        self.assertTrue(payload['segments'])
+        self.assertIn('测试块', payload['note'])
+        self.assertEqual(payload['version'], self.model['version'])
+        self.assertIn(lookup['rule_label'], [row['label'] for row in payload['methods']])
+
+    def test_classification_accepts_station_and_weekend_filters(self):
+        options = model_api.model_options(self.model)
+        payload = model_api.classification(self.model, {
+            'facility': options['facilities'][0], 'period': options['periods'][0], 'hour': '18',
+            'weekend': '1', 'station': 'S1'})
+        self.assertEqual(payload['lookup']['is_weekend'], 1)
+        self.assertEqual(payload['lookup']['station'], 'S1')
+        self.assertGreater(payload['lookup']['station_count'], 0)
+
+    def test_classification_validates_enums_and_hour(self):
+        options = model_api.model_options(self.model)
+        cases = ({'facility': '不存在的类型', 'hour': '9'}, {'period': 'noon', 'hour': '9'},
+                 {'hour': '24'}, {'hour': 'x'}, {'hour': None}, {'weekend': '2', 'hour': '9'},
+                 {'unknown': '1', 'hour': '9'})
+        for filters in cases:
+            with self.assertRaises(ValueError):
+                model_api.classification(self.model, dict(filters))
+        self.assertTrue(options['facilities'])
+
+    def test_classification_endpoint_serves_the_model_over_http(self):
+        model_path = self.root / 'model_v2.json'
+        model_path.write_text(json.dumps(self.model, ensure_ascii=False), encoding='utf-8')
+        server = create_server(str(self.cleaning), 0, None, str(model_path))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            urlopen(base + '/api/health', timeout=2).close()
+        except OSError as error:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+            self.skipTest(f'当前环境不允许 loopback 连接（{error}）')
+        try:
+            with urlopen(base + '/api/classification?hour=9') as response:
+                payload = json.load(response)
+            self.assertEqual(payload['code'], 0)
+            self.assertTrue(payload['data']['lookup']['decision_label'])
+            with urlopen(base + '/api/health') as response:
+                health = json.load(response)['data']
+            self.assertTrue(health['classification_ready'])
+            self.assertTrue(health['forecast_ready'])
+            for suffix in ['/api/classification?hour=24', '/api/classification?unknown=1',
+                           '/api/classification?hour=9&period=noon']:
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(base + suffix)
+                self.assertEqual(error.exception.code, 400)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
 
 if __name__ == '__main__':

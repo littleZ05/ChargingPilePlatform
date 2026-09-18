@@ -76,6 +76,10 @@ class Handler(SimpleHTTPRequestHandler):
                 if not self.model_v2:
                     raise ValueError('未加载第二版模型，请用 --model-v2 指定 model_v2.json')
                 data = model_api.session_quantiles(self.model_v2, filters)
+            elif url.path == '/api/classification':
+                if not self.model_v2:
+                    raise ValueError('未加载第二版模型，请用 --model-v2 指定 model_v2.json')
+                data = model_api.classification(self.model_v2, filters)
             elif url.path == '/api/stations':
                 if not self.model_v2:
                     raise ValueError('未加载第二版模型，请用 --model-v2 指定 model_v2.json')
@@ -111,7 +115,8 @@ class Handler(SimpleHTTPRequestHandler):
                         'sessions': len(self.analytics.sessions),
                         'stations': len(self.analytics.stations),
                         'model_version': (self.model_v2 or {}).get('version'),
-                        'forecast_ready': bool((self.model_v2 or {}).get('forecast'))}
+                        'forecast_ready': bool((self.model_v2 or {}).get('forecast')),
+                        'classification_ready': bool((self.model_v2 or {}).get('classification'))}
             else:
                 self.send_error(404)
                 return
