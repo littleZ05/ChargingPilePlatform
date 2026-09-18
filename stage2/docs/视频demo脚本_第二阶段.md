@@ -36,6 +36,25 @@
 
 ## 三、录制前准备（约 5 分钟，照抄执行）
 
+### 0. 用脚本推进分镜（推荐）
+
+分镜已经写进 `stage2/demo_video.sh`：它按顺序打开这一镜要展示的窗口，并在当前终端打印这一镜的口播，
+终端里的命令会先显示出来、按回车才执行（不会在镜头里手打错字）。
+
+```bash
+cd /home/bit/桌面/dongruan_ws/ChargingPilePlatform
+bash stage2/demo_video.sh --prep        # 彩排：把 demo-video/ 的数仓与分析报告准备好（约 1 分钟，只做一次）
+bash stage2/demo_video.sh --selftest    # 自检：产物、服务、依赖、每一镜的动作与文档路径
+bash stage2/demo_video.sh --list        # 看 11 镜的清单
+bash stage2/demo_video.sh --dry-run     # 只打印每镜会开什么窗口、跑什么命令，不动桌面
+bash stage2/demo_video.sh               # 正式录：打印当前镜口播，按回车进入下一镜并打开对应窗口
+bash stage2/demo_video.sh --auto 25     # 需要自动推进就用这个（每 25 秒一镜）
+bash stage2/demo_video.sh --from 6      # 只重录第 6 镜起（口误返工时用）
+```
+
+脚本会自己确认大屏服务（已在 8791 跑着就复用，没跑就按下面的命令拉起来），所以 1–3 步它都替你做了；
+想手动控制就照旧按下面的步骤来。
+
 ### 1. 用固定版本的数据和模型起大屏
 
 ```bash
@@ -195,6 +214,8 @@ env -u LD_PRELOAD -u PROXYCHAINS_CONF_FILE python3 -m unittest discover -s stage
 - [ ] 五个视图都点过一遍，热力图、预警卡片、分位数、站点画像都有内容
 - [ ] 彩排跑通：`demo-video/warehouse.db` 能查出 44 张表、705 行，`分析报告.md` 存在
 - [ ] `demo-video/live-ingest`、`demo-video/live-cleaning` 已删除（现场那条命令要求目录不存在）
+- [ ] `bash stage2/demo_video.sh --selftest` 全绿（除了 ffmpeg，装好它再录一条 `[OK]`）
+- [ ] `bash stage2/demo_video.sh --dry-run` 看过一遍，确认每镜开的窗口就是你要拍的
 - [ ] 三个终端标签与编辑器标签就位，通知已关
 - [ ] 屏幕分辨率 1920×1080，浏览器缩放 110%
 - [ ] 录屏 `Ctrl+Alt+Shift+R` 与 `parecord` 各试录 10 秒，确认文件能生成
