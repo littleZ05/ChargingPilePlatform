@@ -44,7 +44,43 @@ class PublishTest(unittest.TestCase):
                          len(self.rows('dws_station_features')))
         self.assertEqual(summary['tables']['ads_session_quantile'],
                          len(self.rows('ads_session_quantile')))
+        self.assertEqual(summary['tables']['ads_session_classification'],
+                         len(self.rows('ads_session_classification')))
+        self.assertEqual(summary['tables']['ads_classification_metric'],
+                         len(self.rows('ads_classification_metric')))
         self.assertEqual(summary['model_version'], self.model['version'])
+
+    def test_classification_rows_match_the_model_and_the_stored_threshold(self):
+        publish.publish(self.database, self.model)
+        section = self.model['classification']
+        categories = section['categories']
+        rows = self.rows('ads_session_classification')
+        self.assertEqual(len(rows), len(categories['facility_label'])
+                         * len(categories['time_period']) * 24)
+        threshold = section['deployment']['decision_threshold']
+        for facility, period, hour, method, probability, decision, rule, tree, cut, *_ in rows:
+            self.assertIn(facility, categories['facility_label'])
+            self.assertIn(period, categories['time_period'])
+            self.assertEqual(method, section['chosen'])
+            self.assertEqual(cut, threshold)
+            self.assertEqual(decision, int(probability >= threshold))
+            if section['chosen'] == 'cart':
+                self.assertNotEqual(rule, tree)     # 上线树时两支必须分开记，不能抄成一个数
+        self.assertEqual({row[9] for row in rows}, {section['deployment']['train_sessions']})
+
+    def test_classification_metrics_table_marks_the_online_method(self):
+        publish.publish(self.database, self.model)
+        section = self.model['classification']
+        rows = self.rows('ads_classification_metric')
+        self.assertEqual([row[0] for row in rows],
+                         section['baselines'] + ['cart'])
+        chosen = [row for row in rows if row[10] == 1]
+        self.assertEqual(len(chosen), 1)
+        self.assertEqual(chosen[0][0], section['chosen'])
+        for row in rows:
+            self.assertTrue(row[1])
+            self.assertIsNotNone(row[2])          # 平均精度
+            self.assertEqual(row[11], self.model['version'])
 
     def test_forecast_rows_carry_method_and_version(self):
         publish.publish(self.database, self.model)
@@ -79,7 +115,8 @@ class PublishTest(unittest.TestCase):
         publish.publish(self.database, self.model, dictionary=path)
         text = path.read_text(encoding='utf-8')
         for fragment in ('预测层落库表', 'dws_day_hour', 'ads_forecast',
-                         'ads_session_quantile', self.model['version']):
+                         'ads_session_quantile', 'ads_session_classification',
+                         'ads_classification_metric', self.model['version']):
             self.assertIn(fragment, text)
         self.assertNotIn('口径', text)
 

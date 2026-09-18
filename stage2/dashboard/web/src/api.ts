@@ -80,6 +80,7 @@ export interface Health {
   stations: number
   model_version?: string | null
   forecast_ready?: boolean
+  classification_ready?: boolean
 }
 
 export interface ForecastMetrics { samples: number; mae: number; rmse: number; relative_error: number | null }
@@ -155,6 +156,78 @@ export interface ModelOptions {
   targets: string[]
   levels: { tau: number; label: string }[]
   protocol: Record<string, string>
+}
+
+export interface ClassificationMetric {
+  samples: number
+  positives: number
+  base_rate: number | null
+  accuracy: number | null
+  precision: number
+  recall: number
+  f1: number
+  roc_auc: number | null
+  average_precision: number | null
+  brier: number | null
+  threshold: number | null
+  confusion: Record<string, number>
+}
+
+export interface ClassificationLookup {
+  facility: string
+  period: string
+  hour: number
+  station: string | null
+  platform: string
+  is_weekend: number
+  method: string
+  method_label: string
+  probability: number
+  decision: number
+  decision_label: string
+  threshold: number
+  rule_method: string
+  rule_label: string
+  rule_rate: number
+  tree_rate: number
+  station_median: number | null
+  station_count: number
+  leaf: { conditions: string[]; conditions_text: string; samples: number; positives: number; probability: number }
+  calibration_bucket: { range: string; samples: number; mean_score: number; observed_rate: number } | null
+}
+
+export interface SessionClassification {
+  version: string
+  label: string
+  positive: string
+  negative: string
+  threshold_hours: number
+  threshold_source: string
+  chosen: string
+  chosen_label: string
+  baseline_choice: string
+  baseline_label: string
+  model_adopted: boolean
+  beats_on_decisions: boolean
+  ranking_not_worse: boolean
+  f1_advantage: number | null
+  skill: number | null
+  block_wins: number
+  block_total: number
+  test_sessions: number
+  positive_rate: number
+  decision_threshold: number
+  methods: { method: string; label: string; metrics: ClassificationMetric }[]
+  blocks: { start_day: number; end_day: number; sessions: number; training_rows: number; threshold: number }[]
+  deployment: { params: Record<string, number>; leaves: number; features: string[]; train_sessions: number; train_positive_rate: number; in_sample_metrics: ClassificationMetric }
+  rules: { conditions_text: string; samples: number; positives: number; probability: number; translation: string }[]
+  calibration: { range: string; samples: number; mean_score: number; observed_rate: number }[]
+  importance: { feature: string; weight: number }[]
+  limits: string[]
+  lookup: ClassificationLookup
+  curve: { hour: number; probability: number; rule_rate: number; tree_rate: number; decision: number }[]
+  segments: { facility: string; period: string | null; sessions: number; rate: number }[]
+  note: string
 }
 
 /** 过滤空值与 energy=all，避免把"全部"当成筛选条件传给服务端。 */

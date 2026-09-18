@@ -416,7 +416,7 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
     threshold = quantile([float(row['duration_hours']) for row in rows], quantile_level)
     labels = label_rows(rows, threshold)
     categories = sessions.categories_from(rows)
-    names, matrix, _ = design(rows, categories)
+    names, matrix, statistics = design(rows, categories)
     params = choose_params(rows, threshold)
     model = tree.fit(matrix, labels, names, max_depth=params['max_depth'],
                      min_samples_leaf=params['min_samples_leaf'], alpha=params['alpha'])
@@ -425,6 +425,14 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
     top_rules = tree.rules(model)
     for rule in top_rules:
         rule['translation'] = _translate(rule['conditions'])
+    # 上线方法的查表、站点统计与特征枚举都要随模型一起存下来：
+    # 服务端只读模型 JSON，不再回查明细表。
+    baseline = fit_baseline(rows, labels, choice['baseline_choice'])
+    baseline_table = {'|'.join(str(part) for part in key): value
+                      for key, value in baseline['table'].items()}
+    baseline_counts = {}
+    for key, count in _segment_counts(rows, baseline['keys']).items():
+        baseline_counts['|'.join(str(part) for part in key)] = count
     return dict(
         label=LABEL_NAME, positive=POSITIVE_LABEL, negative=NEGATIVE_LABEL,
         target='duration_hours', quantile=quantile_level,
@@ -432,6 +440,7 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
         chosen=choice['chosen'], chosen_label=METHOD_LABELS[choice['chosen']],
         model_adopted=choice['model_adopted'], baseline_choice=choice['baseline_choice'],
         baseline_label=METHOD_LABELS[choice['baseline_choice']],
+        categories=categories, statistics=statistics,
         advantage=choice['advantage'], skill=choice['skill'],
         f1_advantage=choice['f1_advantage'],
         beats_on_decisions=choice['beats_on_decisions'],
@@ -442,6 +451,11 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
         test_sessions=evaluation['test_sessions'], fold_thresholds=evaluation['thresholds'],
         fold_positive_rate=evaluation['positive_rate'],
         deployment=dict(params=params, features=names, tree=model['tree'],
+                        categories=categories, statistics=statistics,
+                        baseline=dict(method=baseline['method'],
+                                      keys=list(baseline['keys']),
+                                      base_rate=baseline['base_rate'],
+                                      table=baseline_table, counts=baseline_counts),
                         decision_threshold=round(decision, 4),
                         train_sessions=len(rows),
                         train_positive_rate=round(sum(labels) / len(labels), 4),
@@ -459,6 +473,14 @@ def _threshold_note(rows, quantile_level):
     days = len({row['day_index'] for row in rows})
     return (f'全部可用会话（{len(rows)} 条、{days} 天）单次时长的 '
             f'P{int(quantile_level * 100)} 分位；评估时每折只用各自窗口内的分位')
+
+
+def _segment_counts(rows, keys):
+    counts = {}
+    for row in rows:
+        key = tuple(row[field] for field in keys)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 FEATURE_TEXT = {
@@ -504,12 +526,16 @@ def build_report(section, path=None):
                      f"{_fmt(stats['roc_auc'])} | {_fmt(stats['accuracy'])} | "
                      f"{_fmt(stats['precision'])} | {_fmt(stats['recall'])} | "
                      f"{_fmt(stats['f1'])} | {_fmt(stats['brier'])} |")
-    lines += ['', f"采纳规则：模型要在平均精度上领先最佳基线 {int(ADOPT_MARGIN * 100)}% 才上线，"
-                  f"否则上线经验规则。本次上线的是 **{section['chosen_label']}**"
+    lines += ['', f'采纳规则：运营问的是"这次要不要提前提示"，是带阈值的判断，'
+                  f"因此以 F1（阈值在每个训练窗口内按 F1 选）为主指标，要求模型领先最佳基线 "
+                  f"{int(ADOPT_MARGIN * 100)}%；同时用平均精度作护栏——排序质量不得低于最佳基线，"
+                  f"防止靠调阈值换指标。两条都满足才上线模型，否则如实上线经验规则。"
+                  f"本次上线的是 **{section['chosen_label']}**"
                   f"（{'模型采纳' if section['model_adopted'] else '未达门槛，上线基线'}），"
                   f"逐块胜出 {section['block_wins']}/{section['block_total']}。", '']
     if section['model_adopted']:
-        lines += [f"相对最佳基线的平均精度提升 {_percent(section['advantage'])}。", '']
+        lines += [f"相对最佳基线：F1 提升 {_percent(section['advantage'])}，"
+                  f"平均精度提升 {_percent(section['skill'])}。", '']
     deployment = section['deployment']
     lines += [f"部署树：{deployment['leaves']} 片叶子，max_depth={deployment['params']['max_depth']}、"
               f"min_samples_leaf={deployment['params']['min_samples_leaf']}、"

@@ -111,6 +111,26 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(deployment['importance'])
         self.assertTrue(self.hour_section['limits'])
 
+    def test_deployment_carries_the_lookup_tables_the_service_needs(self):
+        """服务端不回查明细表，所以类别、站点统计与分段比例必须随产物一起存下来。"""
+        section = self.facility_section
+        deployment = section['deployment']
+        self.assertEqual(deployment['categories'], section['categories'])
+        self.assertEqual(deployment['statistics'], section['statistics'])
+        baseline = deployment['baseline']
+        self.assertEqual(baseline['method'], section['baseline_choice'])
+        self.assertIn(tuple(baseline['keys']),
+                      (('facility_label',), ('facility_label', 'time_period')))
+        self.assertTrue(baseline['table'])
+        # 键必须是 JSON 能存的字符串：元组键在 json.dumps 里会变成数组，服务端查不到
+        for key, value in baseline['table'].items():
+            self.assertIsInstance(key, str)
+            self.assertEqual(len(key.split('|')), len(baseline['keys']))
+            self.assertGreaterEqual(value, 0.0)
+            self.assertLessEqual(value, 1.0)
+        self.assertEqual(set(baseline['table']), set(baseline['counts']))
+        self.assertEqual(sum(baseline['counts'].values()), deployment['train_sessions'])
+
     def test_label_threshold_comes_from_the_requested_quantile(self):
         section = self.hour_section
         self.assertAlmostEqual(section['threshold_hours'], 6.0)
