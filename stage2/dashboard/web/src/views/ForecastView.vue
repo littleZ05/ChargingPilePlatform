@@ -288,6 +288,10 @@ onMounted(loadAll)
         历史命中 {{ classification.lookup.leaf.samples }} 条，其中长时长 {{ classification.lookup.leaf.positives }} 条；
         站点历史中位时长 {{ describe(classification.lookup.station_median) }} 小时
         （样本 {{ classification.lookup.station_count }} 条）。
+        该站当时占用：过去 2 小时 {{ describe(classification.lookup.occupancy.recent, 1) }} 单、
+        估计仍在占用 {{ describe(classification.lookup.occupancy.active, 1) }} 个车位、
+        过去 24 小时 {{ describe(classification.lookup.occupancy.day, 1) }} 单
+        （{{ classification.lookup.occupancy.source }}）。
         <template v-if="classification.lookup.calibration_bucket">
           该概率落在校准区间 {{ classification.lookup.calibration_bucket.range }}，
           区间内实际正类比例 {{ relative(classification.lookup.calibration_bucket.observed_rate) }}

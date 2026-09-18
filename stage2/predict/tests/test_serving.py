@@ -150,6 +150,21 @@ class ClassificationServingTest(unittest.TestCase):
         self.assertEqual(detail['station_count'], 0)
         self.assertIsNotNone(detail['probability'])
 
+    def test_occupancy_lookup_falls_back_and_reports_its_source(self):
+        """服务端没有实时会话流：占用只能查"站点×小时 → 该小时 → 整体"的历史平均。"""
+        lookup = self.rule_section['deployment']['occupancy']
+        facility, period = self.first(self.rule_section)
+        station, hour = next(iter(lookup['by_station_hour'])).split('|')
+        known = serving.classification_detail(self.rule_section, facility, period, int(hour),
+                                              station=station)
+        self.assertGreater(known['occupancy']['samples'], 0)
+        self.assertIn('平均占用', known['occupancy']['source'])
+        hourly = lookup['by_hour'][str(int(hour))]
+        unknown = serving.classification_detail(self.rule_section, facility, period, int(hour),
+                                                station='S-不存在')
+        self.assertEqual(unknown['occupancy']['samples'], hourly['samples'])
+        self.assertEqual(unknown['occupancy']['day'], hourly['day'])
+
 
 if __name__ == '__main__':
     unittest.main()

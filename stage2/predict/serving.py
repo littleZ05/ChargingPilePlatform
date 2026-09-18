@@ -139,7 +139,21 @@ def classification_row(section, facility, period, hour, station=None, platform=N
                manager_vehicle=float(manager_vehicle), station_id=station or '')
     enriched = sessions.attach_station_features([row], section['statistics'])[0]
     _, values = sessions.design_row(enriched, categories, with_station=True)
-    return enriched, values
+    occupancy = occupancy_values(section['deployment'], station, hour)
+    return enriched, values + [occupancy['recent'], occupancy['active'], occupancy['day']], occupancy
+
+
+def occupancy_values(deployment, station, hour):
+    """扫码时该站的占用两列：站点 × 小时 → 该小时平均 → 整体平均，逐级退回。
+
+    服务端没有实时会话流，查表里存的是训练窗口的平均占用；接口把来源一并返回，
+    避免把这几个数当成实时实测值。
+    """
+    lookup = deployment['occupancy']
+    entry = lookup['by_station_hour'].get(f'{station}|{int(hour)}') if station else None
+    if entry is None:
+        entry = lookup['by_hour'].get(str(int(hour)), lookup['overall'])
+    return dict(entry, source=lookup['source'])
 
 
 def rounded(value, digits=4):
@@ -192,8 +206,8 @@ def classification_detail(section, facility, period, hour, station=None, platfor
                           is_weekend=0, manager_vehicle=0.0):
     """这一次会话的长时长占用概率：上线那一支 + 另一支对照 + 判定结果。"""
     deployment = section['deployment']
-    enriched, values = classification_row(section, facility, period, hour, station,
-                                          platform, is_weekend, manager_vehicle)
+    enriched, values, occupancy = classification_row(section, facility, period, hour, station,
+                                                    platform, is_weekend, manager_vehicle)
     rule_rate = classification_rule_rate(deployment['baseline'], enriched)
     tree_rate = classification_tree_rate(deployment, values)
     online = tree_rate if section['chosen'] == 'cart' else rule_rate
@@ -212,6 +226,7 @@ def classification_detail(section, facility, period, hour, station=None, platfor
         tree_rate=round(tree_rate, 4),
         station_median=rounded(enriched['station_median']),
         station_count=int(enriched['station_count']),
+        occupancy=occupancy,
         leaf=classification_leaf(deployment, values),
         calibration_bucket=classification_calibration_bucket(deployment['calibration'], online))
 

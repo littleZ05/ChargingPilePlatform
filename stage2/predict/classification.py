@@ -9,8 +9,9 @@
 阈值每折都只在它自己的训练窗口里算，测试块不参与，避免把答案漏给模型。
 
 特征只用扫码那一刻已知的信息：设施类型、峰谷时段、平台、开始时段（4 小时一档）、
-是否周末、是否管理用车，以及站点历史时长中位数（向全局收缩）。
-不使用本次会话的电量、费用、结束时间等结果字段。
+是否周末、是否管理用车、站点历史时长中位数（向全局收缩），以及站点当时的占用——
+过去 2 小时该站开了几单、估计此刻还在占用几个车位（在充会话的结束时间用站点历史
+中位时长估算，不是已观察到的事实）。不使用本次会话的电量、费用、结束时间等结果字段。
 
 评估与其它预测任务同一套协议：前 70% 的天留作测试期，之后每 30 天一个测试块，
 每块都用它之前最近 90 天重新拟合模型与基线。指标用 ROC-AUC、平均精度（PR-AUC，
@@ -43,8 +44,12 @@ ADOPT_MARGIN = 0.10
 MIN_TRAIN_SESSIONS = 120
 DEFAULT_THRESHOLD = 0.5
 SMOOTHING = 10.0
+RECENT_HOURS = 2            # "过去 2 小时该站开了几单"的窗口
+DAY_HOURS = 24              # "过去 24 小时该站开了几单"的窗口
+OCCUPANCY_FEATURES = ('station_recent', 'station_active', 'station_day')
 VALIDATION_SHARE = 0.2
-PARAM_GRID = ((2, 20), (2, 40), (3, 40), (3, 80), (4, 40), (4, 80))
+PARAM_GRID = ((2, 20), (2, 40), (3, 40), (3, 80), (4, 20), (4, 40), (4, 80),
+              (6, 20), (6, 40), (8, 20))
 PRUNING_CANDIDATES = 3      # 每条剪枝路径最多评估 3 个 alpha，控制训练时间
 METHODS = ['global_rate', 'facility_rate', 'facility_period_rate', 'cart']
 BASELINES = METHODS[:-1]
@@ -198,21 +203,100 @@ def label_rows(rows, threshold):
 def design(rows, categories):
     """复用分位数模型的特征展开，附加站点历史时长中位数（扫码时已知）。"""
     statistics = sessions.station_statistics(rows, 'duration_hours')
-    enriched = sessions.attach_station_features(rows, statistics)
-    names, matrix = None, []
-    for row in enriched:
-        names, values = sessions.design_row(row, categories, with_station=True)
-        matrix.append(values)
-    return names or [], matrix, statistics
+    names, matrix = design_with(rows, categories, statistics)
+    return names, matrix, statistics
 
 
-def design_with(rows, categories, statistics):
+def design_with(rows, categories, statistics, prefix=()):
+    """按给定站点统计展开设计矩阵，并追加上"扫码那一刻的占用"两列。
+
+    prefix 是窗口之前的历史会话（见 occupancy_history）：评估测试块时，
+    只有窗口里已是历史的会话才允许参与计数，窗口之后的会话一律看不见。
+    """
     enriched = sessions.attach_station_features(rows, statistics)
+    occupancy = occupancy_stream(enriched, prefix)
     names, matrix = None, []
-    for row in enriched:
-        names, values = sessions.design_row(row, categories, with_station=True)
-        matrix.append(values)
+    for row, counts in zip(enriched, occupancy):
+        names, values = sessions.design_row(dict(row, **counts), categories, with_station=True)
+        names = names + list(OCCUPANCY_FEATURES)
+        matrix.append(values + [counts[name] for name in OCCUPANCY_FEATURES])
     return names or [], matrix
+
+
+def time_of(row):
+    """相对时间轴上的小时坐标：day_index 是相对天数，hour 是开始小时。"""
+    return row['day_index'] * 24 + int(row['hour'])
+
+
+def occupancy_stream(enriched, prefix=()):
+    """按时间顺序扫一遍，给出每条会话"扫码那一刻"能看到的站点占用。
+
+    两列都只用严格更早开始的会话，因此不存在把答案漏给模型的问题：
+      - station_recent：过去 RECENT_HOURS 小时内该站开始的会话数（完全已知）；
+      - station_active：估计此刻仍在占用的会话数——用"当时已知"的站点历史中位时长
+        估算它们何时结束。在充会话的真实结束时间此刻未知，用历史中位时长代替，
+        这一点写在模型卡的限制里，不当作已观察到的事实。
+      - station_day：过去 DAY_HOURS 小时内该站开始的会话数（完全已知）。站点稀疏时
+        两小时窗口几乎恒为 0，这一列用来回答"这个站今天是不是本来就忙"。
+    """
+    history = {}
+    for station, start, estimate in prefix:
+        history.setdefault(station, []).append((start, start + float(estimate)))
+    results = [None] * len(enriched)
+    order = sorted(range(len(enriched)), key=lambda index: (time_of(enriched[index]), index))
+    for index in order:
+        row = enriched[index]
+        start = time_of(row)
+        seen = history.setdefault(row['station_id'], [])
+        recent = sum(1 for begin, _ in seen if 0 <= start - begin <= RECENT_HOURS)
+        active = sum(1 for _, finish in seen if finish > start)
+        day = sum(1 for begin, _ in seen if 0 <= start - begin <= DAY_HOURS)
+        results[index] = {'station_recent': float(recent),
+                          'station_active': float(active), 'station_day': float(day)}
+        seen.append((start, start + float(row['station_median'])))
+    return results
+
+
+def occupancy_history(enriched):
+    """把一批会话压成 prefix：站点、开始时刻、当时已知的时长估计。"""
+    return [(row['station_id'], time_of(row), row['station_median']) for row in enriched]
+
+
+def occupancy_lookup(enriched, occupancy):
+    """服务端要用的占用查表：站点 × 小时的平均占用，逐级退回。
+
+    大屏服务只读模型产物、没有实时会话流，所以这里存的不是"此刻真实占用"，
+    而是训练窗口内该站点该小时的平均值；站点×小时没有样本时退回该小时平均，
+    再退回整体平均。模型卡与接口都写明这一点，避免把估计值说成实测值。
+    """
+    buckets = {}
+
+    def tally(bucket, counts):
+        bucket[0] += counts['station_recent']
+        bucket[1] += counts['station_active']
+        bucket[2] += counts['station_day']
+        bucket[3] += 1
+
+    overall = [0.0, 0.0, 0.0, 0]
+    for row, counts in zip(enriched, occupancy):
+        tally(buckets.setdefault(('station_hour', f"{row['station_id']}|{int(row['hour'])}"),
+                                 [0.0, 0.0, 0.0, 0]), counts)
+        tally(buckets.setdefault(('hour', str(int(row['hour']))), [0.0, 0.0, 0.0, 0]), counts)
+        tally(overall, counts)
+
+    def finalize(bucket):
+        return dict(recent=round(bucket[0] / bucket[3], 4) if bucket[3] else 0.0,
+                    active=round(bucket[1] / bucket[3], 4) if bucket[3] else 0.0,
+                    day=round(bucket[2] / bucket[3], 4) if bucket[3] else 0.0,
+                    samples=bucket[3])
+
+    return dict(
+        by_station_hour={key: finalize(value) for (kind, key), value in buckets.items()
+                         if kind == 'station_hour'},
+        by_hour={key: finalize(value) for (kind, key), value in buckets.items()
+                 if kind == 'hour'},
+        overall=finalize(overall),
+        source='训练窗口内该站点该小时的平均占用（服务端没有实时会话流）')
 
 
 def fit_baseline(rows, labels, method):
@@ -264,7 +348,9 @@ def choose_params(rows, threshold, share=VALIDATION_SHARE):
     train_labels = label_rows(train, threshold)
     valid_labels = label_rows(valid, threshold)
     _, train_matrix, statistics = design(train, categories)
-    _, valid_matrix = design_with(valid, categories, statistics)
+    # 验证集的占用计数要看得见训练窗口里的在充会话，否则"过去 2 小时几单"会系统性偏低
+    prefix = occupancy_history(sessions.attach_station_features(train, statistics))
+    _, valid_matrix = design_with(valid, categories, statistics, prefix)
     if not train_matrix or not valid_matrix:
         return dict(max_depth=3, min_samples_leaf=40, alpha=0.0, scored_on='特征为空，取默认参数')
     names = tree_names(train, categories)
@@ -297,7 +383,7 @@ def tree_names(rows, categories):
                                 'platform': categories['platform'][0], 'hour': 0,
                                 'is_weekend': 0, 'manager_vehicle': 0,
                                 'station_median': 0.0, 'station_count': 0.0},
-                               categories, with_station=True)[0]
+                               categories, with_station=True)[0] + list(OCCUPANCY_FEATURES)
 
 
 def evaluate_rolling(rows, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_DAYS,
@@ -317,7 +403,8 @@ def evaluate_rolling(rows, window_days=sessions.WINDOW_DAYS, block_days=sessions
         test_labels = label_rows(test, threshold)
         categories = sessions.categories_from(train)
         names, matrix, statistics = design(train, categories)
-        _, test_matrix = design_with(test, categories, statistics)
+        prefix = occupancy_history(sessions.attach_station_features(train, statistics))
+        _, test_matrix = design_with(test, categories, statistics, prefix)
         params = choose_params(train, threshold)
         model = tree.fit(matrix, train_labels, names, max_depth=params['max_depth'],
                          min_samples_leaf=params['min_samples_leaf'], alpha=params['alpha'])
@@ -425,6 +512,9 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
     top_rules = tree.rules(model)
     for rule in top_rules:
         rule['translation'] = _translate(rule['conditions'])
+    # 服务端没有实时会话流：占用两列存成"站点 × 小时的平均占用"查表，逐级退回。
+    enriched = sessions.attach_station_features(rows, statistics)
+    occupancy = occupancy_lookup(enriched, occupancy_stream(enriched))
     # 上线方法的查表、站点统计与特征枚举都要随模型一起存下来：
     # 服务端只读模型 JSON，不再回查明细表。
     baseline = fit_baseline(rows, labels, choice['baseline_choice'])
@@ -452,6 +542,7 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
         fold_positive_rate=evaluation['positive_rate'],
         deployment=dict(params=params, features=names, tree=model['tree'],
                         categories=categories, statistics=statistics,
+                        occupancy=occupancy,
                         baseline=dict(method=baseline['method'],
                                       keys=list(baseline['keys']),
                                       base_rate=baseline['base_rate'],
@@ -466,6 +557,8 @@ def train(database, window_days=sessions.WINDOW_DAYS, block_days=sessions.BLOCK_
         limits=['标签是训练窗口内的时长 P75，阈值随数据更新，不是业务固定标准；',
                 '概率来自叶子上的历史比例，叶子样本少时分辨率有限，只作运营提示；',
                 '不使用本次会话的结果字段，因此不能解释"这一单为什么特别长"；',
+                f'"扫码时该站占用"用的是训练窗口内该站点该小时的平均占用，不是实时实测值；'
+                f'在充会话的结束时间用站点历史中位时长估算，接入实时数据后可替换为实测值；',
                 '结论用于运营参考，不作为对用户的承诺或处罚依据。'])
 
 
@@ -492,6 +585,9 @@ FEATURE_TEXT = {
     'manager_vehicle': '管理用车',
     'station_median': '站点历史中位时长',
     'station_count': '站点历史样本量',
+    'station_recent': f'过去 {RECENT_HOURS} 小时该站开单数',
+    'station_active': '扫码时该站估计仍在占用数',
+    'station_day': f'过去 {DAY_HOURS} 小时该站开单数',
 }
 
 
@@ -556,6 +652,15 @@ def build_report(section, path=None):
                   '| 特征 | 重要度 |', '|---|---:|']
         for item in deployment['importance']:
             lines.append(f"| `{item['feature']}` | {item['weight']} |")
+        used = {item['feature'] for item in deployment['importance']}
+        chosen = [name for name in OCCUPANCY_FEATURES if name in used]
+        if chosen:
+            lines += ['', f"扫码时的占用特征被树采用：{'、'.join('`' + name + '`' for name in chosen)}；"
+                          '它们的分界线读法与其它特征一样，写在下面的规则表里。']
+        else:
+            lines += ['', '扫码时的占用特征（过去 2 / 24 小时该站开单数、估计仍在占用数）'
+                          '没有被树选中：在这份数据上它们没有提供比现有特征更好的切分，'
+                          '因此只作为候选特征保留在产物里。']
     lines += ['', '### 使用方式与限制', '',
               '- 概率高的会话可以提前提示车位周转，概率低的不需要额外动作。',
               '- 叶子概率来自历史同组会话，样本少的叶子分辨率有限；',
