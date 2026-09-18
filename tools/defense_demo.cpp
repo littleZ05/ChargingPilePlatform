@@ -1,7 +1,7 @@
 // 第二阶段答辩演示：依次弹出"七环节效果图"与"实时大屏"窗口。
 //
 // 用法：
-//   defense_demo --data <清洗结果目录> --model <model.json> --assets <PPT素材目录> [--auto 20] [--selftest --out DIR]
+//   defense_demo --data <清洗结果目录> --model <model.json> --model-v2 <model_v2.json> --assets <PPT素材目录> [--auto 20] [--selftest --out DIR]
 // 操作：
 //   空格 / → / 回车：下一个窗口      ← / 退格：上一个窗口      R：重头开始      Esc / Q：退出
 //   加 --auto N 则每 N 秒自动进入下一个窗口（仍可用空格手动推进）。
@@ -45,8 +45,10 @@ struct Step
 class Demo : public QObject
 {
 public:
-    Demo(const QString &base, const QString &assets, int autoSeconds, bool selftest, const QString &outDir)
-        : m_base(base), m_assets(assets), m_outDir(outDir), m_autoSeconds(autoSeconds), m_selftest(selftest)
+    Demo(const QString &base, const QString &assets, int autoSeconds, bool selftest, const QString &outDir,
+         const QString &modelV2 = QString())
+        : m_base(base), m_assets(assets), m_outDir(outDir), m_autoSeconds(autoSeconds), m_selftest(selftest),
+          m_modelV2(modelV2)
     {
         m_steps = {
             {"image", "第二阶段演示 · 第 4 组", QString(), "空格：下一步　←：上一步　Esc：退出", QString()},
@@ -55,21 +57,24 @@ public:
             {"image", "② 数据清洗：六步流程与关键决策", "02-数据清洗.png",
              "3395 会话 / 1594 电池 / 105 站点全部保留并打标，隔离 0 条", QString()},
             {"image", "③ 分层存储：ODS/DWD/DWS/ADS", "03-分层存储.png",
-             "41 张表 28366 行；对账 3395 会话 · 19723.69 kWh · 55 条零电量", QString()},
+             "49 张表 38363 行（含预测回落 5 张）；对账 3395 会话 · 19723.69 kWh · 55 条零电量", QString()},
             {"image", "④ 数据分析：统计 / 相关 / 聚类 / 回归", "04-数据分析.png",
              "Pearson 0.316（弱相关）· 回归 R² 0.0999 · 高峰 11/12/17 点", QString()},
-            {"image", "⑤ 数据预测：模型选择与评估", "05-数据预测.png",
-             "季节基线 MAE 12.65 优于线性回归 20.78，模型自动选基线", QString()},
+            {"image", "⑤ 数据预测：负荷 / 分位数 / 站点画像", "05-数据预测.png",
+             "未来 24 小时负荷：岭回归 MAE 5.89 对基线 6.40；单次 P10/P50/P90 分位数；站点画像 k=2（轮廓 0.64）", QString()},
             {"image", "⑥ 业务应用：RESTful API 与即席查询", "07-接口实测.png",
-             "6 个只读接口；启动时校验 manifest 哈希，失败即拒绝启动", QString()},
+             "9 个只读接口；启动时校验 manifest 哈希，失败即拒绝启动", QString()},
             {"web", "⑦ 实时大屏 · 运营概览（全量 3395 会话）", "",
-             "五维筛选：站点 / 设施编码 / 平台 / 星期 / 电量", QString()},
+             "七个筛选维度：站点 / 桩类型 / 峰谷时段 / 平台 / 星期 / 电量 / 订单维度", QString()},
             {"web", "⑦ 实时大屏 · 筛选联动（平台 iOS ＋ 正电量）", "",
              "会话 3395 → 2195，电量 12788.67 kWh，零电量归零",
              QStringLiteral("(function(){var p=document.getElementById('platform');p.value='ios';"
                             "p.dispatchEvent(new Event('change'));"
                             "setTimeout(function(){var e=document.getElementById('energy');"
                             "e.value='positive';e.dispatchEvent(new Event('change'));},900);})()")},
+            {"web", "⑦ 实时大屏 · 预测（24 小时负荷 / 分位数 / 站点画像）", "",
+             "12788.67 kWh 之外：预测结果已回落数仓，大屏直接读 ads_forecast 与 ads_session_quantile",
+             QStringLiteral("document.querySelector('[data-view=forecast]').click()")},
             {"web", "⑦ 实时大屏 · 电池样本（独立分析）", "",
              "1594 条电池样本，不与会话 ID 关联，可做 SOC/电压/电流/温度分布",
              QStringLiteral("document.querySelector('[data-view=battery]').click()")},
@@ -299,6 +304,8 @@ public:
         QStringList args{script, QStringLiteral("--data"), data, QStringLiteral("--port"), QString::number(port)};
         if (!model.isEmpty())
             args << QStringLiteral("--model") << model;
+        if (!m_modelV2.isEmpty())
+            args << QStringLiteral("--model-v2") << m_modelV2;
         m_serverProcess->setProcessChannelMode(QProcess::ForwardedChannels);
         m_serverProcess->start(QStringLiteral("python3"), args);
         QTextStream(stdout) << "已启动大屏服务：python3 " << args.join(' ') << "\n";
@@ -308,32 +315,58 @@ private:
     QString m_base, m_assets, m_outDir;
     int m_autoSeconds = 0, m_index = 0, m_selftestIndex = 0;
     bool m_selftest = false;
+    QString m_modelV2;
     QList<QPointer<QWidget>> m_windows;
     QList<Step> m_steps;
     QProcess *m_serverProcess = nullptr;
 };
 
-static bool waitForHealth(const QString &base, int timeoutMs)
+/** 探测 /api/health：拿不到响应返回空，避免把"端口上任意一个服务"当成可用的大屏。 */
+static QByteArray probeHealth(const QString &base, int timeoutMs = 1500)
 {
     QNetworkAccessManager manager;
+    QNetworkRequest request(QUrl(base + QStringLiteral("/api/health")));
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    QNetworkReply *reply = manager.get(request);
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
+    loop.exec();
+    QByteArray body;
+    if (reply->error() == QNetworkReply::NoError)
+        body = reply->readAll();
+    reply->deleteLater();
+    return body;
+}
+
+static bool waitForHealth(const QString &base, int timeoutMs, bool requireV2 = false)
+{
     QElapsedTimer clock;
     clock.start();
     while (clock.elapsed() < timeoutMs) {
-        QNetworkRequest request(QUrl(base + QStringLiteral("/api/health")));
-        request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-        QNetworkReply *reply = manager.get(request);
-        QEventLoop loop;
-        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
-        loop.exec();
-        const bool ok = reply->error() == QNetworkReply::NoError
-                && reply->readAll().contains("\"status\": \"ok\"");
-        reply->deleteLater();
+        const QByteArray body = probeHealth(base);
+        const bool ok = body.contains("\"status\": \"ok\"")
+                && (!requireV2 || body.contains("\"forecast_ready\": true"));
         if (ok)
             return true;
         QThread::msleep(700);
     }
     return false;
+}
+
+/** 选一个能用的端口：优先复用已经起了第二版模型的健康服务，否则挑一个空闲端口自己起。 */
+static int pickPort(int port)
+{
+    for (int candidate = port; candidate < port + 10; ++candidate) {
+        const QString base = QStringLiteral("http://127.0.0.1:%1").arg(candidate);
+        const QByteArray body = probeHealth(base);
+        if (body.isEmpty())
+            return candidate;                        // 端口空闲，由本程序拉起服务
+        if (body.contains("\"status\": \"ok\"") && body.contains("\"forecast_ready\": true"))
+            return candidate;                        // 已有第二版服务，直接复用
+        QTextStream(stdout) << "端口 " << candidate << " 上是旧版服务（缺少第二版预测），改用下一个端口\n";
+    }
+    return port;
 }
 
 static QString resolveServerScript()
@@ -354,7 +387,7 @@ int main(int argc, char **argv)
     QApplication application(argc, argv);
     application.setQuitOnLastWindowClosed(false);   // 逐帧自检与切窗时不要因窗口销毁而退出
     argc = application.arguments().size();
-    QString data, model, assets, out = QStringLiteral("defense-selftest");
+    QString data, model, modelV2, assets, out = QStringLiteral("defense-selftest");
     int port = 8765, autoSeconds = 0;
     bool selftest = false, launch = true, noServer = false;
     for (int i = 1; i < argc; ++i) {
@@ -362,6 +395,7 @@ int main(int argc, char **argv)
         const bool hasNext = i + 1 < argc;
         if (arg == "--data" && hasNext) data = application.arguments().at(++i);
         else if (arg == "--model" && hasNext) model = application.arguments().at(++i);
+        else if (arg == "--model-v2" && hasNext) modelV2 = application.arguments().at(++i);
         else if (arg == "--assets" && hasNext) assets = application.arguments().at(++i);
         else if (arg == "--port" && hasNext) port = application.arguments().at(++i).toInt();
         else if (arg == "--auto" && hasNext) autoSeconds = application.arguments().at(++i).toInt();
@@ -373,25 +407,26 @@ int main(int argc, char **argv)
         QTextStream(stderr) << "必须提供 --assets <PPT素材目录>\n";
         return 2;
     }
+    port = pickPort(port);
     const QString base = QStringLiteral("http://127.0.0.1:%1").arg(port);
-    Demo demo(base, assets, autoSeconds, selftest, out);
+    Demo demo(base, assets, autoSeconds, selftest, out, modelV2);
     if (launch && !selftest) {
         const QString script = resolveServerScript();
-        if (QFileInfo::exists(script) && !waitForHealth(base, 500))
+        if (QFileInfo::exists(script) && !waitForHealth(base, 500, true))
             demo.startServer(script, data, model, port);
-        if (!waitForHealth(base, 15000)) {
+        if (!waitForHealth(base, 15000, true)) {
             QTextStream(stderr) << "大屏服务未就绪，请先手动启动 server.py\n";
             return 3;
         }
-    } else if (!selftest && !waitForHealth(base, 5000)) {
+    } else if (!selftest && !waitForHealth(base, 5000, true)) {
         QTextStream(stderr) << "无法连接 " << base << "，请先启动大屏服务\n";
         return 3;
     }
     if (selftest) {
         QDir().mkpath(out);
-        if (!noServer)
+        if (!noServer && !waitForHealth(base, 300, true))
             demo.startServer(resolveServerScript(), data, model, port);
-        if (!waitForHealth(base, 20000)) {
+        if (!waitForHealth(base, 20000, true)) {
             QTextStream(stderr) << "自检无法连接大屏服务\n";
             return 3;
         }

@@ -1,6 +1,6 @@
 姓名,第二阶段承担内容,主要证据,建议占比
 张芮萌（组长）,统筹与第二迭代；清洗管线与质量报告；采集/存储/分析/预测实现；大屏接口与报表；测试与交付打包；PPT与答辩主讲,"PR #42 #43 #45 #46；stage2/cleaning、ingest、warehouse、analysis、predict；tools/package_stage2.py",30%
-吴羽桐,Web大屏前端与可视化（扩展筛选、三视图与导出）,stage2/dashboard/public/；验收截图/01-运营概览.png,22%
+吴羽桐,Web大屏前端与可视化（扩展筛选、多视图与导出；重构为 Vue3 五视图）,stage2/dashboard/public/；stage2/dashboard/web/,22%
 陈庚泉,采集脚本与数据字典复核；数据库字段对接；数据集打包与对账,"stage2/ingest/collect.py；数据字典.md；数据集-第4组.tar.gz",18%
 毛悦琮,服务端接口实现与联调；预测接口接入；接口测试,"stage2/dashboard/server.py；docs/api.md；stage2/dashboard/tests",18%
 葛伊诺,录屏拍摄与剪辑；演示环境准备；现场操作与截图证据,小组录屏-第4组-第二阶段.mp4；演示流程与截图,12%

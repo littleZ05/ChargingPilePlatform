@@ -11,7 +11,7 @@
 | HTTP 服务与 RESTful API | `stage2/dashboard/server.py`，`/api/health` 等 9 个接口 |
 | Vue3 + ECharts 离线大屏 | `stage2/dashboard/web/`（源码）与 `web/dist/`（构建产物，ECharts 按需打包，无 CDN、无外网依赖） |
 | 自研算法实现 | K-Means（k-means++）、最小二乘回归、岭回归（手写高斯消元）、分位数回归（pinball loss + IRLS）、Pearson、IQR/3σ、季节基线、扩展窗口滚动评估 |
-| 自动化测试 | 清洗 7 项 + 采集 6 项 + 分析 7 项 + 预测 78 项 + 大屏 17 项（其中 2 项 HTTP 用例需能访问 127.0.0.1） |
+| 自动化测试 | 清洗 7 项 + 采集 6 项 + 分析 7 项 + 预测 79 项 + 大屏 17 项（其中 2 项 HTTP 用例需能访问 127.0.0.1：代理环境下用 `env -u LD_PRELOAD` 复跑） |
 
 ## 二、未部署的组件及等价实现
 

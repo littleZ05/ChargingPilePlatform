@@ -27,6 +27,16 @@ import timeline  # noqa: E402
 TABLES = ('dws_day_hour', 'dws_station_features', 'ads_station_busyness',
           'ads_forecast', 'ads_session_quantile')
 
+# 这 5 张表在数仓装载之后由本脚本写入，清单（warehouse_manifest.json）要跟着更新，
+# 否则会出现"清单 44 张表、库内 49 张表"的对不上。
+PUBLISHED_TABLES = {
+    'dws_day_hour': ('dws', '相对时间轴（day_index）× 小时面板：会话数、电量与缺测掩码'),
+    'dws_station_features': ('dws', '站点画像特征、所属簇与繁忙度档位'),
+    'ads_station_busyness': ('ads', '站点繁忙度分档（稀疏站点标记为样本不足）'),
+    'ads_forecast': ('ads', '未来一天 24 小时的负荷预测（会话数/电量 × 未来 1/6/24 小时）'),
+    'ads_session_quantile': ('ads', '单次充电时长/电量的 P10/P50/P90（设施类型 × 峰谷时段 × 小时）'),
+}
+
 SCHEMA = {
     'dws_day_hour': ('day_index integer, hour integer, weekday text, is_weekend integer, '
                      'session_count integer, total_kwh real, mask integer'),
@@ -132,7 +142,33 @@ def publish(database, model, dictionary=None):
                  '单次充电时长/电量的 P10/P50/P90（按设施类型 × 峰谷时段 × 小时） |']
         with path.open('a', encoding='utf-8') as stream:
             stream.write('\n'.join(lines) + '\n')
+    refresh_manifest(database, counts, version, generated_at)
     return dict(database=str(database), model_version=version, tables=counts)
+
+
+def refresh_manifest(database, counts, version, generated_at):
+    """把预测层写入的 5 张表登记进数仓清单，保持清单与库内容一致。"""
+    path = Path(database).with_name('warehouse_manifest.json')
+    if not path.exists():
+        return None
+    manifest = json.loads(path.read_text(encoding='utf-8'))
+    detail = [row for row in manifest.get('tables_detail', [])
+              if row.get('table') not in PUBLISHED_TABLES]
+    for table, (layer, note) in PUBLISHED_TABLES.items():
+        detail.append({'table': table, 'layer': layer, 'rows': counts.get(table, 0),
+                       'source': f'predict/publish.py（模型 {version}，生成于 {generated_at}）',
+                       'note': note})
+    manifest['tables_detail'] = detail
+    manifest['tables'] = len(detail)
+    manifest['rows'] = sum(int(row.get('rows', 0)) for row in detail)
+    manifest['layers'] = {}
+    for row in detail:
+        layer = row.get('layer', 'other')
+        manifest['layers'][layer] = manifest['layers'].get(layer, 0) + 1
+    manifest['layers'] = dict(sorted(manifest['layers'].items()))
+    manifest['prediction_model_version'] = version
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return manifest
 
 
 def main(argv=None):

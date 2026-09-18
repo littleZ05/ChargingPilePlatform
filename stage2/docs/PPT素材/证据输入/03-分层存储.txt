@@ -1,0 +1,17 @@
+$ python3 stage2/warehouse/load.py --data <清洗结果> --ingest <采集产物> --db warehouse.db --manifest warehouse_manifest.json
+{"database": "build-stage2/run-defense/warehouse.db", "tables": 44, "layers": {"ads": 8, "audit": 2, "dwd": 3, "dws": 7, "ods": 21, "quarantine": 3}, "rows": 28577}
+
+$ python3 stage2/predict/publish.py --db warehouse.db --model model_v2.json --dictionary 数据字典.md
+{"database": "build-stage2/run-defense/warehouse.db", "model_version": "202609181803", "tables": {"dws_day_hour": 7704, "dws_station_features": 105, "ads_station_busyness": 105, "ads_forecast": 144, "ads_session_quantile": 1728}}
+
+$ sqlite3 warehouse.db "select ..."   # 四层对账 + 预测层
+dwd_sessions|3395
+dws_day_hour|7704
+ads_kpi_daily_session_count|3395
+ads_kpi_daily_total_kwh|19723.69
+ads_forecast|144
+ads_session_quantile|1728
+zero_energy|55
+stations|105
+
+# 落库后清单与库内容一致：49 张表 / 38363 行（装载 44 张，预测层再登记 5 张）

@@ -83,6 +83,28 @@ class PublishTest(unittest.TestCase):
             self.assertIn(fragment, text)
         self.assertNotIn('口径', text)
 
+    def test_manifest_is_refreshed_with_published_tables(self):
+        """落库后数仓清单必须与库内容一致，不能停在装载阶段的 44 张表。"""
+        path = self.root / 'warehouse_manifest.json'
+        path.write_text(json.dumps({'database': str(self.database), 'tables': 1, 'rows': 10,
+                                    'layers': {'ads': 1},
+                                    'tables_detail': [{'table': 'ads_kpi_daily', 'layer': 'ads',
+                                                       'rows': 10}]},
+                                   ensure_ascii=False), encoding='utf-8')
+        summary = publish.publish(self.database, self.model)
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(manifest['tables'], len(publish.TABLES) + 1)
+        self.assertEqual(manifest['layers']['ads'], 1 + sum(
+            1 for layer, _ in publish.PUBLISHED_TABLES.values() if layer == 'ads'))
+        self.assertEqual(manifest['rows'],
+                         10 + sum(summary['tables'][table] for table in publish.TABLES))
+        self.assertEqual(manifest['prediction_model_version'], self.model['version'])
+        # 重跑不重复登记
+        publish.publish(self.database, self.model)
+        again = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(again['tables'], manifest['tables'])
+        self.assertEqual(again['rows'], manifest['rows'])
+
     def test_cli_entrypoint_publishes_and_prints_summary(self):
         import contextlib
         import io
