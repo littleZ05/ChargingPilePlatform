@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """第二阶段分层存储：把 ODS/DWD/ADS 与采集产物装载进本地数仓，并建模 DWS 汇总层。
 
-分层口径（对齐课程要求）：
+分层设计（对齐课程要求）：
   ODS 原始层 -> 清洗前的原样数据（含采集产物）
   DWD 明细层 -> 清洗后的标准化明细
   DWS 汇总层 -> 本脚本从 DWD 建模得到（站点×时段、设施×平台、星期×时段、用户行为）
   ADS 应用层 -> 直接支撑大屏的应用聚合
-本机以 SQLite 充当数仓（等价 Hive/ClickHouse 的表与 SQL 查询），分层与字段口径保持不变。
+本机以 SQLite 充当数仓（等价 Hive/ClickHouse 的表与 SQL 查询），分层与字段定义保持不变。
 """
 import argparse
 import csv
@@ -17,6 +17,9 @@ import sys
 from collections import Counter, defaultdict
 from decimal import Decimal
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
+from contract import load_cleaning  # noqa: E402
 
 LAYER_TABLES = {
     'ods': [('ods/sessions_source.csv', 'ods_sessions_source'),
@@ -30,7 +33,8 @@ LAYER_TABLES = {
             ('ads/by_facility_type.csv', 'ads_by_facility_type'),
             ('ads/by_platform.csv', 'ads_by_platform'),
             ('ads/by_start_hour.csv', 'ads_by_start_hour'),
-            ('ads/by_weekday.csv', 'ads_by_weekday')],
+            ('ads/by_weekday.csv', 'ads_by_weekday'),
+            ('ads/by_time_period.csv', 'ads_by_time_period')],
     'audit': [('audit/row_actions.csv', 'audit_row_actions'),
               ('audit/rule_counts.csv', 'audit_rule_counts')],
     'quarantine': [('quarantine/sessions.csv', 'quarantine_sessions'),
@@ -143,6 +147,26 @@ def build_dws(connection, ledger):
                    sum(case when quality_flags is not null and quality_flags <> '' then 1 else 0 end) as flagged_count
             from dwd_sessions
             group by station_id""",
+        # 峰谷时段定义见 stage2/common/contract.py：高峰/平时/低谷与对应电价由清洗层派生，本层只聚合。
+        'dws_period_profile': """
+            create table dws_period_profile as
+            select time_period,
+                   count(*) as session_count,
+                   round(sum(cast(kwh as real)), 2) as total_kwh,
+                   round(sum(cast(estimated_fee as real)), 2) as estimated_fee_total,
+                   round(avg(cast(kwh as real)), 4) as avg_kwh
+            from dwd_sessions
+            where time_period is not null and time_period <> ''
+            group by time_period""",
+        'dws_station_period': """
+            create table dws_station_period as
+            select station_id, time_period,
+                   count(*) as session_count,
+                   round(sum(cast(kwh as real)), 2) as total_kwh,
+                   round(sum(cast(estimated_fee as real)), 2) as estimated_fee_total
+            from dwd_sessions
+            where time_period is not null and time_period <> ''
+            group by station_id, time_period""",
     }
     for table, sql in statements.items():
         connection.execute(f'drop table if exists {table}')
@@ -214,15 +238,20 @@ def build_data_dictionary(ledger, path, database):
         columns = '、'.join(f'`{c}`' for c in info['columns'])
         lines.append(f'| {info["layer"].upper()} | `{info["table"]}` | {info["rows"]} '
                      f'| {info["source"]} | {columns} |')
-    lines += ['', '## 口径说明', '',
+    lines += ['', '## 数据说明', '',
               '- `dwd_sessions.kwh` 为原始合法电量；`user_id` 只在 DWD 保留，DWS 用户行为表使用哈希键。',
-              '- 原字段费用语义与币种未核实，不进入 DWS 营收类指标。',
+             '- 原字段费用语义与币种未核实，不进入 DWS 营收类指标。',
+             '- `estimated_fee` 为峰谷按项目设定电价估算的派生列（高峰1.5/平时1.0/低谷0.7 元×kWh），'
+             '仅作参考估算对比，不代表真实收费或营收。',
+             '- `time_period` 取值为 `peak`/`normal`/`off_peak`，仅在开始小时通过校验的行上有值。',
               '- 年份不可信，任何按真实日期的分组都不在本数仓提供。',
               '- 采集产物以 `ingest_` 前缀进入 ODS，与课程源文件并存，便于跨源核对。', '']
     Path(path).write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
 def run(data, ingest=None, database='warehouse.db', dictionary=None, manifest=None):
+    # 消费方契约校验：缺列/版本不符/对账不一致都在这里拦下，不带着坏产物建仓。
+    load_cleaning(data)
     database = Path(database)
     if database.exists():
         raise SystemExit(f'数仓已存在，拒绝覆盖已有证据：{database}')
