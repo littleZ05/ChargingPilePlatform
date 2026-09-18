@@ -147,7 +147,46 @@ class Analytics:
                     fee_total_estimated_model=self.manifest['fee_total_estimated_model'],
                     stations=[dict(id=key, name=row['station_name']) for key, row in self.stations.items()])
 
+    def station_hour(self, filters, limit=20):
+        """站点 × 开始小时热力图：按会话数取前 limit 个站点，小时 0–23 补零。
+
+        行是站点、列是小时，格子是会话数。取前 limit 个而不是全量，是因为 105 个站点的
+        热力图没人看得清；站点按会话数降序、ID 升序稳定排序，并列时不会来回跳。
+        只统计开始小时可用（time_of_day_usable=1）的记录，与总览页的口径保持一致。
+        """
+        filters = dict(filters)
+        try:
+            limit = int(filters.pop('limit', limit))
+        except (TypeError, ValueError):
+            raise ValueError('limit 必须是整数')
+        if limit < 1 or limit > 50:
+            raise ValueError('limit 取值无效：应在 1–50 之间')
+        selected, rows = self.select(filters)
+        counts, totals = defaultdict(int), defaultdict(int)
+        for row in rows:
+            if row['time_of_day_usable'] != '1':
+                continue
+            counts[(row['station_id'], row['start_hour'])] += 1
+            totals[row['station_id']] += 1
+        ranked = sorted(totals, key=lambda station: (-totals[station], station))[:limit]
+        data = []
+        for index, station in enumerate(ranked):
+            for hour in range(24):
+                data.append([hour, index, counts.get((station, str(hour)), 0)])
+        return dict(
+            version=self.version, rule_version=self.rule_version, filters=selected,
+            limit=limit, hours=list(range(24)),
+            stations=[dict(station=station,
+                           label=self.stations.get(station, {}).get('station_name') or station,
+                           sessions=totals[station]) for station in ranked],
+            data=data, max_sessions=max([cell[2] for cell in data] or [0]),
+            sessions=sum(totals[station] for station in ranked),
+            notes=['只统计开始小时可用的记录（可用性标记为 1），与总览页口径一致；',
+                   f'站点按会话数取前 {limit} 个，空小时补 0 而不是留空；',
+                   '站点名称来自课程数据集元数据，未做地理校验。'])
+
     def report(self, kind, filters):
+        """按维度导出：返回行、汇总与版本号。"""
         """报表导出：按维度返回当前筛选下的聚合明细（CSV 由服务端拼装）。"""
         if kind not in DIMENSIONS:
             raise ValueError(f'不支持的报告维度：{kind}')

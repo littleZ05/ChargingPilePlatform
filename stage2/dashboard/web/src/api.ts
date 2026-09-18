@@ -158,6 +158,19 @@ export interface ModelOptions {
   protocol: Record<string, string>
 }
 
+export interface StationHeatmap {
+  version: string
+  rule_version: string
+  filters: Record<string, string>
+  limit: number
+  hours: number[]
+  stations: { station: string; label: string; sessions: number }[]
+  data: [number, number, number][]
+  max_sessions: number
+  sessions: number
+  notes: string[]
+}
+
 export interface ClassificationMetric {
   samples: number
   positives: number

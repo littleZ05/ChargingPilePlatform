@@ -25,6 +25,7 @@
 | `GET /api/stations` | `limit`（1–105，默认 20） | 站点画像：聚类结果、繁忙度分档、Top 站点与分半一致率 |
 | `GET /api/model-options` | 无 | 单次分位数接口的合法取值（设施类型、峰谷时段、平台、分位档），供前端下拉框取用 |
 | `GET /api/classification` | `facility`、`period`、`hour`（0–23，必填）、`platform`、`weekend`（0/1）、`station`（可选） | 会话级长时长占用预警：这次会话的概率与"提前提示/不需要额外动作"判定、落点叶子规则、校准区间、24 小时概率曲线、方法对照表与分段历史比例 |
+| `GET /api/station-hour` | 与总览相同的筛选项 + `limit`（1–50，默认 20） | 站点 × 开始小时热力图：按会话数取前 N 个站点，行是站点、列是 0–23 点，空格子是 0 |
 
 ## 字段定义
 
@@ -75,6 +76,9 @@ curl -s 'http://127.0.0.1:8765/api/classification?facility=交流&period=peak&ho
 
 # 带站点：用该站点的历史时长中位数细化概率（站点样本少时自动向全局退让）
 curl -s 'http://127.0.0.1:8765/api/classification?facility=交流&period=peak&hour=9&station=171000000'
+
+# 站点 × 小时热力图（前 20 个站点）
+curl -s 'http://127.0.0.1:8765/api/station-hour?limit=20'
 ```
 
 ## 预测类接口的取值说明
@@ -99,6 +103,9 @@ curl -s 'http://127.0.0.1:8765/api/classification?facility=交流&period=peak&ho
   估计仍在占用数 `active`、过去 24 小时开单数 `day`）。大屏服务没有实时会话流，这三个数取自训练窗口内
   **该站点该小时的平均占用**（`source` 字段写明来源，`samples` 是参与的会话数）；在充会话的结束时间用
   站点历史中位时长估算。接入实时数据后同一字段可直接换成实测值，接口形状不变。
+- `station-hour.data`：三元组 `[小时下标, 站点下标, 会话数]`，站点下标与 `stations` 数组同序，
+  直接喂给 ECharts 的 heatmap；没有会话的格子是 0，不是缺数据。`stations[].label` 是站名（缺失时退化成站点 ID），
+  `max_sessions` 就是色阶上界。只统计开始小时可用的记录，与总览页一致。
 
 ## 与第一阶段的关系
 
