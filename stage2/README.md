@@ -20,19 +20,31 @@ START_DASHBOARD=0 bash stage2/run_all.sh   # 只跑数据链路，不起服务
 | 2 清洗（六步流程与质量报告） | `cleaning/clean.py` | `python3 stage2/cleaning/clean.py --input <数据集目录> --output <新目录>` |
 | 3 分层存储（ODS/DWD/DWS/ADS） | `warehouse/load.py` | `python3 stage2/warehouse/load.py --data <清洗目录> --ingest <采集目录> --db warehouse.db` |
 | 4 分析（统计/相关/聚类/回归/异常） | `analysis/analysis.py`、`analysis/query.py` | 见 `docs/architecture.md` |
-| 5 可视化（ECharts 大屏与报表） | `dashboard/` | `python3 stage2/dashboard/server.py --data <清洗目录> --model <model.json>` |
+| 5 可视化（Vue3 + ECharts 大屏与报表） | `dashboard/` | `python3 stage2/dashboard/server.py --data <清洗目录> --model <model.json>` |
 | 6 预测（季节基线 + 线性回归） | `predict/train.py`、`predict/forecast.py` | `python3 stage2/predict/train.py --db warehouse.db --out model.json` |
 | 7 业务应用（RESTful API、预警、集成） | `dashboard/server.py` | 接口见 `docs/api.md` |
 
 ## 测试
 
 ```bash
-python3 -m unittest discover -s stage2/cleaning/tests -v     # 4 项
+python3 -m unittest discover -s stage2/cleaning/tests -v     # 7 项
 python3 -m unittest discover -s stage2/ingest/tests -v       # 6 项
 python3 -m unittest discover -s stage2/analysis/tests -v     # 6 项
 python3 -m unittest discover -s stage2/predict/tests -v      # 6 项
-python3 -m unittest discover -s stage2/dashboard/tests -v    # 5 项
+python3 -m unittest discover -s stage2/dashboard/tests -v    # 9 项（HTTP 用例需要能访问 127.0.0.1）
 ```
+
+## 大屏前端（Vue3）
+
+源码在 `stage2/dashboard/web/`，构建产物 `web/dist/` 已入库，**离线可跑、不依赖 CDN**：
+
+```bash
+cd stage2/dashboard/web && npm install && npm run build   # 只有改前端源码时才需要重新构建
+python3 stage2/dashboard/server.py --data <清洗目录> --model <model.json> --port 8765
+```
+
+服务只托管 `web/dist/`；未构建时启动会直接报出构建命令，不会白屏。数据契约不符时打印原因并非零退出，
+前端则显示错误横幅与重跑命令，不退回演示数据。数据来源与字段定义见 [docs/数据来源与字段定义.md](docs/数据来源与字段定义.md)。
 
 ## 文档
 
@@ -40,6 +52,7 @@ python3 -m unittest discover -s stage2/dashboard/tests -v    # 5 项
 - [边界声明：做了什么、没做什么](docs/boundary.md)
 - [接口文档](docs/api.md)
 - [清洗规则与六步流程](cleaning/README.md)
+- [数据来源与字段定义（v2.0，已确认）](docs/数据来源与字段定义.md)
 - [给 PPT 同学的汇报指导](cleaning/PPT同学制作指导.md)
 
 ## 环境说明（重要）

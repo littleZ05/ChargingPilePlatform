@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """第二阶段数据分析：描述统计、相关性、聚类、回归、季节性与异常检测。
 
-全部使用 Python 标准库实现（本机无 numpy/sklearn/Spark），算法口径与 Spark MLlib 一致：
+全部使用 Python 标准库实现（本机无 numpy/sklearn/Spark），算法实现与 Spark MLlib 一致：
   - 描述统计与分位数
   - Pearson 相关系数
   - K-Means 聚类（k-means++ 初始化，固定随机种子保证可复现）
